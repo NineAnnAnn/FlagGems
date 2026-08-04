@@ -198,6 +198,7 @@ _FULL_CONFIG = (
     ("addmm.out", addmm_out),
     ("addmm_", addmm_),
     ("addmv", addmv),
+    ("addmv_", addmv_),
     ("addmv.out", addmv_out),
     ("addr", addr),
     ("affine_grid_generator", affine_grid_generator),
