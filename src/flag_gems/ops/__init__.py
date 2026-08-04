@@ -419,6 +419,7 @@ from flag_gems.ops.mse_loss import mse_loss
 from flag_gems.ops.mse_loss_backward import mse_loss_backward
 from flag_gems.ops.mul import mul, mul_
 from flag_gems.ops.multinomial import multinomial
+from flag_gems.ops.multiply import multiply
 from flag_gems.ops.multiply_ import multiply_
 from flag_gems.ops.mv import mv
 from flag_gems.ops.mvlgamma_ import mvlgamma_
@@ -1195,6 +1196,7 @@ __all__ = [
     "mul",
     "mul_",
     "multinomial",
+    "multiply",
     "multiply_",
     "mv",
     "mvlgamma_",
