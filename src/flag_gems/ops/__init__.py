@@ -433,6 +433,7 @@ from flag_gems.ops.nansum import nansum, nansum_out
 from flag_gems.ops.narrow import narrow
 from flag_gems.ops.narrow_copy import narrow_copy
 from flag_gems.ops.ne import ne, ne_scalar
+from flag_gems.ops.ne_ import ne_, ne_scalar_
 from flag_gems.ops.neg import neg, neg_
 from flag_gems.ops.negative import negative
 from flag_gems.ops.new_full import new_full
@@ -1209,6 +1210,8 @@ __all__ = [
     "narrow_copy",
     "ne",
     "ne_scalar",
+    "ne_",
+    "ne_scalar_",
     "neg",
     "neg_",
     "negative",
