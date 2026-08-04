@@ -322,6 +322,19 @@ ops:
       - BLAS
     stages:
       - stable: '4.0'
+  - id: addmv_
+    description: |
+      In-place version of `addmv`. Performs a matrix-vector product of the matrix `mat` and the vector `vec`.
+      The vector `input` is added to the final result.
+    for:
+      - addmv_
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - BLAS
+    stages:
+      - alpha: '5.4'
   - id: addmv_out
     description: |
       Performs a matrix-vector product of the matrix `mat` and the vector `vec`.
@@ -950,6 +963,20 @@ ops:
       - Math
     stages:
       - stable: '5.3'
+  - id: atan2_
+    description: |
+      In-place version of `atan2`. Computes the element-wise arc tangent of `input/other(y/x)`,
+      returning angles in radians between `-PI` and `PI`.
+    for:
+      - atan2_
+    labels:
+      - aten
+      - KernelGen
+      - pointwise
+    kind:
+      - Math
+    stages:
+      - alpha: '5.4'
   - id: atan2_out
     description: |
       A variant of `atan2` that allows the output to be saved into `out`.
@@ -1053,6 +1080,19 @@ ops:
       - BLAS
     stages:
       - stable: '4.1'
+  - id: baddbmm_
+    description: |
+      In-place version of `baddbmm`. Performs a batch matrix-matrix product of matrices in `batch1` and `batch2`.
+      `input` is added to the final result.
+    for:
+      - baddbmm_
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - BLAS
+    stages:
+      - alpha: '5.4'
   - id: baddbmm_out
     description: This is a variant of `baddbmm()`.
     for:
@@ -5323,6 +5363,19 @@ ops:
       - Math
     stages:
       - beta: '5.4'
+  - id: xlogy_
+    description: In-place version of `xlogy`. Computes `input * log(other)` element-wise, returning zero where `input` is zero.
+    for:
+      - xlogy_.Tensor
+      - xlogy_.Scalar_Other
+    labels:
+      - aten
+      - KernelGen
+      - pointwise
+    kind:
+      - Math
+    stages:
+      - alpha: '5.4'
   - id: xlogy_out
     description: A variant of `xlogy` that allows the output to be assigned to an `out` tensor.
     for:
@@ -6206,6 +6259,19 @@ ops:
       - Distribution
     stages:
       - stable: '2.1'
+  - id: multiply
+    description: Out-of-place multiplication using Triton kernel (alias for mul). Supports tensor-tensor and tensor-scalar operations.
+    for:
+      - multiply
+      - multiply.Scalar
+      - multiply.Tensor
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - Math
+    stages:
+      - alpha: '5.4'
   - id: multiply_
     description: In-place multiplication using Triton kernel (alias for mul_). Supports tensor-tensor and tensor-scalar operations.
     for:
@@ -6229,6 +6295,17 @@ ops:
       - BLAS
     stages:
       - stable: '2.0'
+  - id: mvlgamma
+    description: Computes the multivariate log-gamma function for each element of the input tensor.
+    for:
+      - mvlgamma
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - Math
+    stages:
+      - alpha: '5.4'
   - id: mvlgamma_
     description: Computes the multivariate log-gamma function in-place for each element of the input tensor.
     for:
@@ -6253,6 +6330,20 @@ ops:
       - Math
     stages:
       - stable: '3.0'
+  - id: nan_to_num_
+    description: |
+      In-place version of `nan_to_num`. Replaces `NaN`, positive infinity, and negative infinity values in `input`
+      with the values specified by `nan`, `posinf`, and `neginf`, respectively.
+    for:
+      - nan_to_num_
+    labels:
+      - aten
+      - KernelGen
+      - pointwise
+    kind:
+      - Math
+    stages:
+      - alpha: '5.4'
   - id: nanmedian
     description: Returns the median of the values in `input`, ignoring `NaN` values.
     for:
@@ -6372,6 +6463,19 @@ ops:
       - Math
     stages:
       - stable: '2.0'
+  - id: ne_
+    description: In-place version of `ne`. Computes that `input` is not equal to `other` element-wise.
+    for:
+      - ne_.Tensor
+      - ne_.Scalar
+    labels:
+      - aten
+      - KernelGen
+      - pointwise
+    kind:
+      - Math
+    stages:
+      - alpha: '5.4'
   - id: ne_scalar
     description: The scalar version of `ne()`.
     for:
@@ -6409,6 +6513,17 @@ ops:
     description: "negative operator"
     for:
       - negative
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - Math
+    stages:
+      - alpha: '5.4'
+  - id: negative_
+    description: In-place version of `negative` operator.
+    for:
+      - negative_
     labels:
       - aten
       - KernelGen
@@ -6727,6 +6842,20 @@ ops:
       Computes the element-wise logical NOT EQUAL of the given input tensors.
     for:
       - not_equal.Tensor
+    labels:
+      - aten
+      - KernelGen
+      - pointwise
+    kind:
+      - Logic
+    stages:
+      - alpha: '5.4'
+  - id: not_equal_
+    description: |
+      In-place version of `not_equal`. Computes the element-wise logical NOT EQUAL of the given input tensors.
+    for:
+      - not_equal_.Tensor
+      - not_equal_.Scalar
     labels:
       - aten
       - KernelGen
@@ -7651,6 +7780,18 @@ ops:
       - Math
     stages:
       - alpha: '5.3'
+  - id: resize_output_
+    description: |
+      In-place version of `resize_output`. Resizes tensor output storage and copies overlapping elements.
+    for:
+      - _resize_output_
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - Math
+    stages:
+      - alpha: '5.4'
   - id: resolve_conj
     description: |
       Returns a new tensor with materialized conjugation if `input`'s conjugate bit is set to True,
