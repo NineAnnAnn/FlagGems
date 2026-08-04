@@ -57,6 +57,7 @@ from flag_gems.ops._pdist_forward import _pdist_forward
 from flag_gems.ops._prelu_kernel import _prelu_kernel
 from flag_gems.ops._prelu_kernel_backward import _prelu_kernel_backward
 from flag_gems.ops._resize_output import _resize_output
+from flag_gems.ops._resize_output_ import _resize_output_
 from flag_gems.ops._safe_softmax import _safe_softmax
 from flag_gems.ops._scaled_dot_product_fused_attention_overrideable import (
     _scaled_dot_product_fused_attention_overrideable,
@@ -736,6 +737,7 @@ __all__ = [
     "_prelu_kernel",
     "_prelu_kernel_backward",
     "_resize_output",
+    "_resize_output_",
     "_safe_softmax",
     "_scaled_dot_product_fused_attention_overrideable",
     "_segment_reduce_backward",
