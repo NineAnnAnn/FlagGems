@@ -34,8 +34,8 @@ def test_accuracy_not_equal_(shape, dtype):
     with flag_gems.use_gems():
         res_out = torch.ops.aten.ne_.Tensor(inp1, inp2)
 
-    utils.gems_assert_close(res_out, ref_out, dtype)
-    utils.gems_assert_close(inp1, ref_inp1, dtype)
+    utils.gems_assert_equal(res_out, ref_out)
+    utils.gems_assert_equal(inp1, ref_inp1)
     assert res_out is inp1
 
 
@@ -52,6 +52,6 @@ def test_accuracy_not_equal_scalar_(shape, dtype):
     with flag_gems.use_gems():
         res_out = torch.ops.aten.ne_.Scalar(inp, scalar)
 
-    utils.gems_assert_close(res_out, ref_out, dtype)
-    utils.gems_assert_close(inp, ref_inp, dtype)
+    utils.gems_assert_equal(res_out, ref_out)
+    utils.gems_assert_equal(inp, ref_inp)
     assert res_out is inp

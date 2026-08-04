@@ -27,15 +27,14 @@ def test_atan2_(shape, dtype):
     x = torch.randn(shape, dtype=dtype, device=flag_gems.device)
     y = torch.randn(shape, dtype=dtype, device=flag_gems.device)
 
-    ref_x = utils.to_reference(x, True)
+    ref_x = utils.to_reference(x.clone(), True)
     ref_y = utils.to_reference(y, True)
 
     ref_out = ref_x.atan2_(ref_y)
 
-    x1 = x.clone()
     with flag_gems.use_gems():
-        res_out = x1.atan2_(y)
+        res_out = x.atan2_(y)
 
     utils.gems_assert_close(res_out, ref_out, dtype)
-    utils.gems_assert_close(x1, ref_x, dtype)
-    assert res_out is x1
+    utils.gems_assert_close(x, ref_x, dtype)
+    assert res_out is x
