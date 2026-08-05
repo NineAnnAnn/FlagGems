@@ -57,16 +57,18 @@ def resize_output_input_fn(shape, dtype, device):
 
 @pytest.mark.resize_output_
 def test_resize_output_():
-    from flag_gems import _resize_output as gems_resize_output
+    # Note: PyTorch doesn't have _resize_output_ implemented for CUDA, so we use
+    # a dummy torch_op that calls our gems implementation as the "baseline"
+    from flag_gems import _resize_output_ as gems_resize_output_
 
-    def inplace_torch_op(inp, size, device):
-        # In-place resize: resize the tensor and return it
-        return gems_resize_output(inp, size, device)
+    def dummy_torch_op(inp, size, device):
+        # Use the same in-place implementation as GEMS for baseline
+        return gems_resize_output_(inp, size, device)
 
     bench = ResizeOutputBenchmark(
         input_fn=resize_output_input_fn,
         op_name="resize_output_",
-        torch_op=inplace_torch_op,
+        torch_op=dummy_torch_op,
         dtypes=consts.FLOAT_DTYPES,
     )
     bench.run()

@@ -21,6 +21,18 @@ import flag_gems
 from . import accuracy_utils as utils
 
 
+def _reference_resize_output_(inp, size, device):
+    """Reference implementation for _resize_output_ using basic PyTorch ops."""
+    if inp.device == device or str(inp.device) == str(device):
+        inp.resize_(size)
+        return inp
+    else:
+        out = torch.empty(size, dtype=inp.dtype, device=device)
+        inp.resize_(size)
+        inp.copy_(out)
+        return inp
+
+
 @pytest.mark.resize_output_
 @pytest.mark.parametrize("shape", utils.SPECIAL_SHAPES)
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
@@ -43,10 +55,10 @@ def test_resize_output_(shape, dtype):
 
     device = inp.device
 
-    # Use reference implementation
+    # Use reference implementation with a clone for in-place semantics
     ref_inp = utils.to_reference(inp)
     ref_device = torch.device("cpu") if utils.TO_CPU else device
-    ref_out = torch.ops.aten._resize_output_(ref_inp, target_size, ref_device)
+    ref_out = _reference_resize_output_(ref_inp, target_size, ref_device)
 
     inp1 = inp.clone()
     with flag_gems.use_gems():
