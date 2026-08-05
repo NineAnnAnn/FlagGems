@@ -24,6 +24,11 @@ from flag_gems.ops._resize_output import _resize_output  # noqa: E402
 
 def _resize_output_(inp: torch.Tensor, size: List[int], device: torch.device):
     logger.debug("GEMS _RESIZE_OUTPUT_")
-    result = _resize_output(inp, size, device)
-    inp.resize_(size)
-    return inp.copy_(result)
+    if inp.device == device:
+        inp.resize_(size)
+        return inp
+    else:
+        out = _resize_output(inp, size, device)
+        inp.resize_(size)
+        inp.copy_(out)
+        return inp
