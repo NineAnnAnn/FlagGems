@@ -22,9 +22,11 @@ logger = logging.getLogger(__name__)
 
 def not_equal_(A, B):
     logger.debug("GEMS NOT_EQUAL_")
-    return not_equal_func(A, B, out0=A)
+    not_equal_func(A, B, out0=A)
+    return A
 
 
 def not_equal_scalar_(A, B):
     logger.debug("GEMS NOT_EQUAL_ SCALAR")
-    return not_equal_func_scalar(A, B, out0=A)
+    not_equal_func_scalar(A, B, out0=A)
+    return A

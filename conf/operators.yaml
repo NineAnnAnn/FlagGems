@@ -6752,8 +6752,8 @@ ops:
     description: |
       Computes element-wise not-equal comparison in-place.
     for:
-      - not_equal_.Tensor
-      - not_equal_.Scalar
+      - ne_.Tensor
+      - ne_.Scalar
     labels:
       - aten
       - KernelGen
