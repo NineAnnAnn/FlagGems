@@ -21,9 +21,11 @@ logger = logging.getLogger(__name__)
 
 def ne_(A, B):
     logger.debug("GEMS NE_")
-    return ne_func(A, B, out0=A)
+    ne_func(A, B, out0=A)
+    return A
 
 
 def ne_scalar_(A, B):
     logger.debug("GEMS NE_ SCALAR")
-    return ne_func_scalar(A, B, out0=A)
+    ne_func_scalar(A, B, out0=A)
+    return A
