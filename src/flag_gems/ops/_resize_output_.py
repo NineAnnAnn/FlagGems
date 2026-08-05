@@ -17,9 +17,9 @@ from typing import List
 
 import torch
 
-logger = logging.getLogger(__name__)
+from flag_gems.ops._resize_output import _resize_output
 
-from flag_gems.ops._resize_output import _resize_output  # noqa: E402
+logger = logging.getLogger(__name__)
 
 
 def _resize_output_(inp: torch.Tensor, size: List[int], device: torch.device):
