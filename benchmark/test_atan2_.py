@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import pytest
-import torch
 
 import flag_gems
 
