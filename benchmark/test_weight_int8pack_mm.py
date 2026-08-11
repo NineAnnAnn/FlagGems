@@ -4,7 +4,7 @@ import torch
 import flag_gems
 
 from . import base
-
+from .consts import BenchmarkMetrics
 
 # FP16/BF16 only: int8 matmul requires half-precision activation
 FP16_BF16_DTYPES = [torch.float16, torch.bfloat16]
@@ -56,13 +56,9 @@ class WeightInt8packMMBenchmark(base.Benchmark):
         metric.shape_detail = self.record_shapes(A, B, scales)
         try:
             if "latency_base" in self.to_bench_metrics:
-                metric.latency_base = self.get_latency(
-                    self.torch_op, A, B, scales
-                )
+                metric.latency_base = self.get_latency(self.torch_op, A, B, scales)
             if "latency" in self.to_bench_metrics:
-                metric.latency = self.get_latency(
-                    self.gems_op, A, B, scales
-                )
+                metric.latency = self.get_latency(self.gems_op, A, B, scales)
             if "speedup" in self.to_bench_metrics:
                 metric.speedup = metric.latency_base / metric.latency
         except (RuntimeError, Exception) as e:
@@ -78,6 +74,14 @@ def weight_int8pack_mm_input_fn(shape, dtype, device):
     B = torch.randint(-128, 127, (N, K), dtype=torch.int8, device=device)
     scales = torch.randn((N,), dtype=dtype, device=device)
     yield (A, B, scales)
+
+
+def weight_int8pack_mm_torch(A, B, scales):
+    """Torch baseline: dequantize int8 weights and compute matmul with scaling."""
+    B_fp = B.to(A.dtype)
+    result = torch.matmul(A, B_fp.T)
+    result = result * scales.unsqueeze(0)
+    return result
 
 
 @pytest.mark.weight_int8pack_mm

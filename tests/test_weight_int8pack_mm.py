@@ -5,7 +5,6 @@ import flag_gems
 
 from . import accuracy_utils as utils
 
-
 # FP16/BF16 only: int8 matmul requires half-precision activation
 WEIGHT_INT8PACK_MM_DTYPES = [torch.float16, torch.bfloat16]
 
@@ -34,7 +33,6 @@ def test_weight_int8pack_mm(M, N, K, dtype):
     B = torch.randint(-128, 127, (N, K), dtype=torch.int8, device=flag_gems.device)
     scales = torch.randn((N,), dtype=dtype, device=flag_gems.device)
 
-
     ref_A = utils.to_reference(A, False)
     ref_B = utils.to_reference(B, False)
     ref_scales = utils.to_reference(scales, False)
@@ -52,4 +50,3 @@ def _ref_weight_int8pack_mm(A, B, scales):
     result = torch.matmul(A, B_fp.T)
     result = result * scales.unsqueeze(0)
     return result
-
