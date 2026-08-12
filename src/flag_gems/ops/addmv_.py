@@ -1,8 +1,8 @@
 import logging
 
-logger = logging.getLogger(__name__)
+from flag_gems.ops.addmv import addmv
 
-from flag_gems.ops.addmv import addmv  # noqa: E402
+logger = logging.getLogger(__name__)
 
 
 def addmv_(self, mat, vec, *, beta=1, alpha=1):
