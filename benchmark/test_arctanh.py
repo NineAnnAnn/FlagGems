@@ -45,3 +45,16 @@ def test_arctanh_inplace():
         is_inplace=True,
     )
     bench.run()
+
+
+@pytest.mark.arctanh_out
+@pytest.mark.skipif(
+    flag_gems.vendor_name == "tsingmicro", reason="Issue #4131: not working"
+)
+def test_arctanh_out():
+    bench = base.UnaryPointwiseOutBenchmark(
+        op_name="arctanh_out",
+        torch_op=torch.arctanh,
+        dtypes=consts.FLOAT_DTYPES,
+    )
+    bench.run()
