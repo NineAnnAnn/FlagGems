@@ -26,16 +26,17 @@ from . import conftest as cfg
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
 def test_blackman_window(window_length, dtype):
     # periodic defaults to True; exercises the aten::blackman_window overload.
+    device = "cpu" if cfg.TO_CPU else flag_gems.device
     ref_out = torch.blackman_window(
         window_length,
         dtype=dtype,
-        device="cpu" if cfg.TO_CPU else flag_gems.device,
+        device=device,
     )
     with flag_gems.use_gems():
         res_out = torch.blackman_window(
             window_length,
             dtype=dtype,
-            device=flag_gems.device,
+            device=device,
         )
 
     utils.gems_assert_close(res_out, ref_out, dtype=dtype)
@@ -48,18 +49,19 @@ def test_blackman_window(window_length, dtype):
 def test_blackman_window_periodic(window_length, periodic, dtype):
     # Passing an explicit periodic flag exercises the
     # aten::blackman_window.periodic overload.
+    device = "cpu" if cfg.TO_CPU else flag_gems.device
     ref_out = torch.blackman_window(
         window_length,
         periodic=periodic,
         dtype=dtype,
-        device="cpu" if cfg.TO_CPU else flag_gems.device,
+        device=device,
     )
     with flag_gems.use_gems():
         res_out = torch.blackman_window(
             window_length,
             periodic=periodic,
             dtype=dtype,
-            device=flag_gems.device,
+            device=device,
         )
 
     utils.gems_assert_close(res_out, ref_out, dtype=dtype)
