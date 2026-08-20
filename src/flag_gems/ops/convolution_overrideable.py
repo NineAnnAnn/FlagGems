@@ -17,18 +17,203 @@ import logging
 
 import torch
 import triton
+import triton.language as tl
 
-from flag_gems.ops.conv2d import conv2d_forward_kernel, conv2d_output_size
+from flag_gems.ops.conv2d import conv2d_output_size
 from flag_gems.ops.conv3d import conv3d
 from flag_gems.ops.conv_transpose1d import conv_transpose1d
 from flag_gems.ops.conv_transpose2d import conv_transpose2d
-from flag_gems.utils import libentry  # noqa: F401  (kept for parity with conv ops)
+from flag_gems.utils import libentry
 
 logger = logging.getLogger(__name__)
 
 # tl.dot requires the contraction dim K >= 16. The im2col matmul contracts over
 # the (padded) per-group input channel count, so channels are padded up to this.
 _MIN_DOT_K = 16
+
+
+def _forward_configs():
+    """Autotune space for the operator-local im2col forward kernel.
+
+    Kept self-contained here (rather than reusing the shared ``conv2d_forward``
+    tuning table) so ``convolution_overrideable`` can explore wider N*Ho*Wo and
+    Co tiles plus deeper software pipelining without changing the shared conv
+    kernels that conv1d/conv2d/conv3d rely on.
+    """
+    configs = []
+    for block_nhw in (32, 64, 128, 256):
+        for block_co in (32, 64, 128):
+            for num_stages in (2, 3, 4):
+                # Small tiles are launch/latency bound, so give them the low warp
+                # counts that keep occupancy up; large tiles need more warps to
+                # cover the wider matmul.
+                warp_choices = (2, 4) if block_nhw <= 64 else (4, 8)
+                for num_warps in warp_choices:
+                    configs.append(
+                        triton.Config(
+                            {
+                                "BLOCK_NI_HO_WO": block_nhw,
+                                "BLOCK_CO": block_co,
+                                "BLOCK_CI": 32,
+                            },
+                            num_stages=num_stages,
+                            num_warps=num_warps,
+                        )
+                    )
+    return configs
+
+
+@libentry()
+@triton.autotune(
+    configs=_forward_configs(),
+    key=[
+        "in_n",
+        "weight_c",
+        "input_height",
+        "input_width",
+        "out_c",
+        "out_height",
+        "out_width",
+        "weight_height",
+        "weight_width",
+        "stride_height",
+        "stride_width",
+        "padding_height",
+        "padding_width",
+        "groups",
+        # Tune per element size: the autotune cache is otherwise dtype-agnostic,
+        # so an aggressive fp16/bf16 tile would be reused for fp32 and blow up
+        # its shared-memory/register budget. Keying on the byte width keeps the
+        # 32-bit path on its own (safer) config.
+        "DTYPE_KEY",
+    ],
+)
+@triton.jit
+def _conv2d_forward_kernel(
+    input_pointer,
+    weight_pointer,
+    output_pointer,
+    bias_pointer,
+    in_n,
+    input_height,
+    input_width,
+    out_c,
+    out_height,
+    out_width,
+    input_n_stride,
+    input_c_stride,
+    input_height_stride,
+    input_width_stride,
+    weight_n_stride,
+    weight_c_stride,
+    weight_height_stride,
+    weight_width_stride,
+    output_n_stride,
+    output_c_stride,
+    output_height_stride,
+    output_width_stride,
+    weight_c: tl.constexpr,
+    weight_height: tl.constexpr,
+    weight_width: tl.constexpr,
+    stride_height: tl.constexpr,
+    stride_width: tl.constexpr,
+    padding_height: tl.constexpr,
+    padding_width: tl.constexpr,
+    dilation_height: tl.constexpr,
+    dilation_width: tl.constexpr,
+    groups: tl.constexpr,
+    DTYPE_KEY: tl.constexpr,
+    BLOCK_NI_HO_WO: tl.constexpr,
+    BLOCK_CI: tl.constexpr,
+    BLOCK_CO: tl.constexpr,
+):
+    pid_ni_ho_wo = tl.program_id(0)
+    pid_co = tl.program_id(1)
+    pid_group = tl.program_id(2)
+
+    ni_ho_wo_offset = pid_ni_ho_wo * BLOCK_NI_HO_WO + tl.arange(0, BLOCK_NI_HO_WO)
+    ni_ho_offset = ni_ho_wo_offset // out_width
+    in_n_point_value = ni_ho_offset // out_height
+    output_height_point_value = ni_ho_offset % out_height
+    output_width_point_value = ni_ho_wo_offset % out_width
+
+    out_per_group_c = out_c // groups
+    output_c_offset = pid_co * BLOCK_CO + tl.arange(0, BLOCK_CO)
+    input_pointer += (
+        input_n_stride * in_n_point_value + input_c_stride * pid_group * weight_c
+    )[:, None]
+    weight_pointer += (
+        weight_n_stride * output_c_offset
+        + weight_n_stride * pid_group * out_per_group_c
+    )[None, :]
+
+    accum = tl.zeros((BLOCK_NI_HO_WO, BLOCK_CO), dtype=tl.float32)
+    BLOCK_CI_COUNT = (weight_c + BLOCK_CI - 1) // BLOCK_CI
+    for hwc in range(weight_height * weight_width * BLOCK_CI_COUNT):
+        c = (hwc % BLOCK_CI_COUNT) * BLOCK_CI
+        hw = hwc // BLOCK_CI_COUNT
+        h = hw // weight_width
+        w = hw % weight_width
+
+        input_c_offset = c + tl.arange(0, BLOCK_CI)
+        input_height_offset = (
+            h * dilation_height
+            - padding_height
+            + stride_height * output_height_point_value
+        )
+        input_width_offset = (
+            w * dilation_width - padding_width + stride_width * output_width_point_value
+        )
+
+        curr_input_pointer = (
+            input_pointer
+            + (input_c_stride * input_c_offset)[None, :]
+            + (input_height_stride * input_height_offset)[:, None]
+            + (input_width_stride * input_width_offset)[:, None]
+        )
+        curr_weight_pointer = (
+            weight_pointer
+            + (weight_c_stride * input_c_offset)[:, None]
+            + (weight_height_stride * h)
+            + (weight_width_stride * w)
+        )
+
+        input_mask = (
+            (in_n_point_value < in_n)[:, None]
+            & (input_c_offset < weight_c)[None, :]
+            & (0 <= input_height_offset)[:, None]
+            & (input_height_offset < input_height)[:, None]
+            & (0 <= input_width_offset)[:, None]
+            & (input_width_offset < input_width)[:, None]
+        )
+        weight_mask = (input_c_offset < weight_c)[:, None] & (
+            output_c_offset < out_per_group_c
+        )[None, :]
+
+        input_block = tl.load(curr_input_pointer, mask=input_mask)
+        weight_block = tl.load(curr_weight_pointer, mask=weight_mask)
+
+        accum += tl.dot(input_block, weight_block, allow_tf32=False)
+    bias_pointer += (pid_group[None] * out_per_group_c)[None, :] + output_c_offset[
+        None, :
+    ]
+    mask_bias = (output_c_offset < out_per_group_c)[None, :]
+    bias = tl.load(bias_pointer, mask_bias).to(tl.float32)
+    accum += bias
+    output_pointer += (
+        (output_n_stride * in_n_point_value)[:, None]
+        + (output_c_stride * (pid_group * out_per_group_c + output_c_offset))[None, :]
+        + (output_height_stride * output_height_point_value)[:, None]
+        + (output_width_stride * output_width_point_value)[:, None]
+    )
+    output_mask = (
+        (in_n_point_value < in_n)[:, None]
+        & (output_c_offset < out_per_group_c)[None, :]
+        & (output_height_point_value < out_height)[:, None]
+        & (output_width_point_value < out_width)[:, None]
+    )
+
+    tl.store(output_pointer, accum, mask=output_mask)
 
 
 def _pair(value):
@@ -86,7 +271,7 @@ def _conv2d_forward(input, weight, bias, stride, padding, dilation, groups):
     else:
         bias_pointer = bias
 
-    conv2d_forward_kernel[grid](
+    _conv2d_forward_kernel[grid](
         input,
         weight,
         output,
@@ -110,6 +295,7 @@ def _conv2d_forward(input, weight, bias, stride, padding, dilation, groups):
         dilation_height,
         dilation_width,
         groups=groups,
+        DTYPE_KEY=input.element_size(),
     )
     return output
 
