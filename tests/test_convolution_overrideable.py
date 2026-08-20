@@ -54,9 +54,9 @@ def test_convolution_overrideable(shape, kernel, groups, stride, padding, bias, 
     else:
         bias_tensor = None
 
-    ref_inp = utils.to_reference(inp)
-    ref_weight = utils.to_reference(weight)
-    ref_bias = utils.to_reference(bias_tensor) if bias else None
+    ref_inp = utils.to_reference(inp, True)
+    ref_weight = utils.to_reference(weight, True)
+    ref_bias = utils.to_reference(bias_tensor, True) if bias else None
 
     dilation = [1, 1]
     output_padding = [0, 0]
@@ -101,9 +101,9 @@ def test_convolution_overrideable_transposed(dtype):
     weight = torch.randn((16, 6, 3, 3), dtype=dtype, device=flag_gems.device)
     bias_tensor = torch.randn([6], dtype=dtype, device=flag_gems.device)
 
-    ref_inp = utils.to_reference(inp)
-    ref_weight = utils.to_reference(weight)
-    ref_bias = utils.to_reference(bias_tensor)
+    ref_inp = utils.to_reference(inp, True)
+    ref_weight = utils.to_reference(weight, True)
+    ref_bias = utils.to_reference(bias_tensor, True)
 
     ref_out = _reference_convolution(
         ref_inp,
@@ -148,9 +148,9 @@ def test_convolution_overrideable_out(shape, kernel, groups, dtype):
     weight = torch.randn(kernel, dtype=dtype, device=flag_gems.device)
     bias_tensor = torch.randn([kernel[0]], dtype=dtype, device=flag_gems.device)
 
-    ref_inp = utils.to_reference(inp)
-    ref_weight = utils.to_reference(weight)
-    ref_bias = utils.to_reference(bias_tensor)
+    ref_inp = utils.to_reference(inp, True)
+    ref_weight = utils.to_reference(weight, True)
+    ref_bias = utils.to_reference(bias_tensor, True)
 
     ref_out = _reference_convolution(
         ref_inp,
