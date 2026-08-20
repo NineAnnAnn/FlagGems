@@ -130,7 +130,12 @@ def test_convolution_overrideable_transposed(dtype):
             1,
         )
 
-    reduce_dim = max(6 * 3 * 3, 1)
+    # Transposed weight layout is (in_channels, out_channels/groups, kH, kW), so
+    # each output element accumulates over in_channels * kH * kW terms (groups=1
+    # here). Size the tolerance off that reduction extent, matching the
+    # conv_transpose2d accuracy test; the previous value used out_channels and
+    # under-counted the reduction, making the bf16 case flaky by ~1 ULP.
+    reduce_dim = max(weight.shape[0] * weight.shape[2] * weight.shape[3], 1)
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=reduce_dim)
 
 
