@@ -3278,6 +3278,17 @@ ops:
       - NeuralNetwork
     stages:
       - stable: '1.0'
+  - id: matrix_exp_backward
+    description: Triton kernel implementation for matrix_exp_backward.
+    for:
+      - matrix_exp_backward
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - Math
+    stages:
+      - alpha: '5.4'
   - id: native_dropout_backward
     description: The backward case of `dropout()`.
     for:
