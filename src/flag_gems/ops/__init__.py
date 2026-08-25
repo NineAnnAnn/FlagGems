@@ -564,6 +564,7 @@ from flag_gems.ops.masked_scatter import masked_scatter, masked_scatter_
 from flag_gems.ops.masked_scatter_backward import masked_scatter_backward
 from flag_gems.ops.masked_select import masked_select
 from flag_gems.ops.max import max, max_dim
+from flag_gems.ops.max_pool1d_with_indices import max_pool1d_with_indices
 from flag_gems.ops.max_pool2d_with_indices import (
     max_pool2d_backward,
     max_pool2d_with_indices,
@@ -1494,6 +1495,7 @@ __all__ = [
     "logaddexp2_out",
     "logcumsumexp",
     "logcumsumexp_out",
+    "max_pool1d_with_indices",
     "unflatten",
     "unsafe_chunk",
     "xlogy",

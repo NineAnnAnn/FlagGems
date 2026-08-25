@@ -3292,6 +3292,16 @@ ops:
       - NeuralNetwork
     stages:
       - stable: '1.0'
+  - id: max_pool1d_with_indices
+    description: Triton kernel implementation for max_pool1d_with_indices.
+    for:
+      - max_pool1d_with_indices
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - Math
+    stages:
   - id: native_dropout_backward
     description: The backward case of `dropout()`.
     for:
