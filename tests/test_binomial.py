@@ -35,8 +35,9 @@ def test_binomial(shape, dtype, n, p):
     with flag_gems.use_gems():
         res_out = torch.binomial(count, prob)
 
+    ref_count = to_reference(count)
     ref_prob = to_reference(prob)
-    ref_out = torch.binomial(count, ref_prob)
+    ref_out = torch.binomial(ref_count, ref_prob)
     mean = torch.mean(ref_out)
     var = torch.var(ref_out)
 
