@@ -27,7 +27,7 @@ NNZ = [50, 500, 200, 1000]
 
 
 def _baseline_op(sparse_dim, dense_dim, size, indices, values, *, is_coalesced=None):
-    return torch._sparse_coo_tensor_with_dims_and_tensors(
+    return torch.ops.aten._sparse_coo_tensor_with_dims_and_tensors(
         sparse_dim, dense_dim, size, indices, values, is_coalesced=is_coalesced
     )
 
