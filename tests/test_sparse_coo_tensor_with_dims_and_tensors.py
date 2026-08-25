@@ -27,7 +27,7 @@ NNZ = [50, 500, 200, 1000]
 
 
 def _baseline_op(sparse_dim, dense_dim, size, indices, values, *, is_coalesced=None):
-    return torch.sparse_coo_tensor(indices, values, size, is_coalesced=is_coalesced)
+    return torch._sparse_coo_tensor_with_dims_and_tensors(indices, values, size, is_coalesced=is_coalesced)
 
 
 @pytest.mark.sparse_coo_tensor_with_dims_and_tensors
