@@ -588,6 +588,7 @@ from flag_gems.ops.max_pool2d_with_indices import (
     max_pool2d_with_indices,
     max_pool2d_with_indices_backward,
 )
+from flag_gems.ops.max_pool3d import max_pool3d
 from flag_gems.ops.max_pool3d_with_indices import (
     max_pool3d_backward,
     max_pool3d_with_indices,
@@ -1546,6 +1547,7 @@ __all__ = [
     "logaddexp2_out",
     "logcumsumexp",
     "logcumsumexp_out",
+    "max_pool3d",
     "unflatten",
     "unsafe_chunk",
     "unsafe_split_with_sizes",

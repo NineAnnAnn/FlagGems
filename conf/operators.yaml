@@ -3392,6 +3392,17 @@ ops:
       - NeuralNetwork
     stages:
       - stable: '1.0'
+  - id: max_pool3d
+    description: Applies a 3D max pooling over an input signal composed of several input planes.
+    for:
+      - max_pool3d
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - NeuralNetwork
+    stages:
+      - beta: '5.3'
   - id: native_dropout_backward
     description: The backward case of `dropout()`.
     for:
