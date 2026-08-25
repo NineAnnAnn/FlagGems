@@ -3292,6 +3292,27 @@ ops:
       - NeuralNetwork
     stages:
       - stable: '1.0'
+  - id: matrix_power
+    description: Triton kernel implementation for matrix_power.
+    for:
+      - matrix_power
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - Math
+    stages:
+  - id: matrix_power_out
+    description: |
+      A variant of matrix_power() that writes the result into the out tensor.
+    for:
+      - matrix_power.out
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - Math
+    stages:
   - id: native_dropout_backward
     description: The backward case of `dropout()`.
     for:
