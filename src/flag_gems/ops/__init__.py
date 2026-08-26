@@ -893,6 +893,10 @@ from flag_gems.ops.upsample_linear1d_backward import upsample_linear1d_backward
 from flag_gems.ops.upsample_nearest1d import upsample_nearest1d
 from flag_gems.ops.upsample_nearest2d import upsample_nearest2d
 from flag_gems.ops.upsample_nearest3d import upsample_nearest3d
+from flag_gems.ops.upsample_nearest3d_backward import (
+    upsample_nearest3d_backward,
+    upsample_nearest3d_backward_grad_input,
+)
 from flag_gems.ops.upsample_trilinear3d import upsample_trilinear3d
 from flag_gems.ops.value_selecting_reduction_backward import (
     value_selecting_reduction_backward,
@@ -1503,6 +1507,8 @@ __all__ = [
     "logcumsumexp_out",
     "unflatten",
     "unsafe_chunk",
+    "upsample_nearest3d_backward",
+    "upsample_nearest3d_backward_grad_input",
     "xlogy",
     "xlogy_out",
     "xlogy_tensor_scalar",

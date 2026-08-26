@@ -6934,6 +6934,28 @@ ops:
       - NeuralNetwork
     stages:
       - alpha: '5.4'
+  - id: upsample_nearest3d_backward
+    description: |
+      Triton kernel implementation for upsample_nearest3d_backward.
+    for:
+      - upsample_nearest3d_backward
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - NeuralNetwork
+    stages:
+  - id: upsample_nearest3d_backward_grad_input
+    description: |
+      A variant of upsample_nearest3d_backward() that writes the result into the grad_input tensor.
+    for:
+      - upsample_nearest3d_backward.grad_input
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - NeuralNetwork
+    stages:
   - id: weight_int4pack_mm_with_scales_and_zeros
     description: |
       Int4 quantized matrix multiplication with separate scales and zeros. Computes
