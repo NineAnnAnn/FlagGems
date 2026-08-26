@@ -1101,6 +1101,7 @@ _FULL_CONFIG = (
     ("sum.IntList_out", sum_dim_out),
     ("sum.dim_IntList", sum_dim),
     ("sum.out", sum_out),
+    ("sum_to_size", sum_to_size),
     ("svd", svd),
     ("sym_constrain_range", sym_constrain_range),
     ("sym_storage_offset", sym_storage_offset),
