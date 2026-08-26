@@ -866,6 +866,7 @@ from flag_gems.ops.split_with_sizes_copy import split_with_sizes_copy
 from flag_gems.ops.sqrt import sqrt, sqrt_
 from flag_gems.ops.square import square, square_, square_out
 from flag_gems.ops.squeeze_copy import squeeze_copy
+from flag_gems.ops.sspaddmm import sspaddmm, sspaddmm_out
 from flag_gems.ops.stack import stack
 from flag_gems.ops.std import std
 from flag_gems.ops.sub import sub, sub_
@@ -1546,6 +1547,8 @@ __all__ = [
     "logaddexp2_out",
     "logcumsumexp",
     "logcumsumexp_out",
+    "sspaddmm",
+    "sspaddmm_out",
     "unflatten",
     "unsafe_chunk",
     "unsafe_split_with_sizes",
