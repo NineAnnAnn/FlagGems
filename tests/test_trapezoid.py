@@ -25,8 +25,7 @@ def test_trapezoid_dx_default(shape, dtype):
     ref_inp = utils.to_reference(res_inp, upcast=True)
 
     ref_out = torch.trapezoid(ref_inp)
-    with flag_gems.use_gems():
-        res_out = torch.trapezoid(res_inp)
+    res_out = torch.trapezoid(res_inp)
 
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=shape[-1])
 
@@ -42,8 +41,7 @@ def test_trapezoid_dx_value(dx, dtype):
     ref_inp = utils.to_reference(res_inp, upcast=True)
 
     ref_out = torch.trapezoid(ref_inp, dx=dx)
-    with flag_gems.use_gems():
-        res_out = torch.trapezoid(res_inp, dx=dx)
+    res_out = torch.trapezoid(res_inp, dx=dx)
 
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=shape[-1])
 
@@ -59,8 +57,7 @@ def test_trapezoid_dx_dim(dim, dtype):
     ref_inp = utils.to_reference(res_inp, upcast=True)
 
     ref_out = torch.trapezoid(ref_inp, dx=2.0, dim=dim)
-    with flag_gems.use_gems():
-        res_out = torch.trapezoid(res_inp, dx=2.0, dim=dim)
+    res_out = torch.trapezoid(res_inp, dx=2.0, dim=dim)
 
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=shape[dim])
 
@@ -75,8 +72,7 @@ def test_trapezoid_dx_int(dtype):
     ref_inp = utils.to_reference(res_inp)
 
     ref_out = torch.trapezoid(ref_inp, dx=2.0)
-    with flag_gems.use_gems():
-        res_out = torch.trapezoid(res_inp, dx=2.0)
+    res_out = torch.trapezoid(res_inp, dx=2.0)
 
     utils.gems_assert_close(res_out, ref_out, torch.float32, reduce_dim=shape[-1])
 
@@ -92,8 +88,7 @@ def test_trapezoid_x_1d(shape, dtype):
     ref_x = utils.to_reference(res_x, upcast=True)
 
     ref_out = torch.trapezoid(ref_inp, ref_x)
-    with flag_gems.use_gems():
-        res_out = torch.trapezoid(res_inp, res_x)
+    res_out = torch.trapezoid(res_inp, res_x)
 
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=n)
 
@@ -110,8 +105,7 @@ def test_trapezoid_x_same_shape(dtype):
     ref_x = utils.to_reference(res_x, upcast=True)
 
     ref_out = torch.trapezoid(ref_inp, ref_x)
-    with flag_gems.use_gems():
-        res_out = torch.trapezoid(res_inp, res_x)
+    res_out = torch.trapezoid(res_inp, res_x)
 
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=shape[-1])
 
@@ -130,7 +124,6 @@ def test_trapezoid_x_dim(dim, dtype):
     ref_x = utils.to_reference(res_x, upcast=True)
 
     ref_out = torch.trapezoid(ref_inp, ref_x, dim=dim)
-    with flag_gems.use_gems():
-        res_out = torch.trapezoid(res_inp, res_x, dim=dim)
+    res_out = torch.trapezoid(res_inp, res_x, dim=dim)
 
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=n)
