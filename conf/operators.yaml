@@ -6899,6 +6899,19 @@ ops:
       - Math
     stages:
       - alpha: '5.4'
+  - id: trace_backward
+    description: >-
+      Gradient of trace: scatters the incoming gradient onto the main
+      diagonal of a zero matrix of the given size.
+    for:
+      - trace_backward
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - Math
+    stages:
+      - alpha: '5.4'
   - id: unflatten
     description: Expand a single dimension into multiple dimensions (inverse of flatten).
     for:
