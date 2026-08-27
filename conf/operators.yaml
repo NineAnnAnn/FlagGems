@@ -6899,6 +6899,30 @@ ops:
       - Math
     stages:
       - alpha: '5.4'
+  - id: trapezoid
+    description: |
+      Triton kernel implementation for trapezoid with constant spacing (dx).
+    for:
+      - trapezoid.dx
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - Reduction
+    stages:
+      - alpha: '5.1'
+  - id: trapezoid_x
+    description: |
+      A variant of trapezoid() that uses a tensor x to specify spacing.
+    for:
+      - trapezoid.x
+    labels:
+      - aten
+      - KernelGen
+    kind:
+      - Reduction
+    stages:
+      - alpha: '5.1'
   - id: unflatten
     description: Expand a single dimension into multiple dimensions (inverse of flatten).
     for:
