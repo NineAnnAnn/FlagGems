@@ -1121,6 +1121,8 @@ _FULL_CONFIG = (
     ("tile", tile),
     ("topk", topk),
     ("trace", trace),
+    ("trapezoid.dx", trapezoid),
+    ("trapezoid.x", trapezoid_x),
     ("transpose.int", transpose),
     ("tril", tril),
     ("tril.out", tril_out),
