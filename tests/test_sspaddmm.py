@@ -2,6 +2,7 @@ import pytest
 import torch
 
 import flag_gems
+from flag_gems.ops.sspaddmm import sspaddmm, sspaddmm_out
 
 from . import accuracy_utils as utils
 
@@ -68,8 +69,7 @@ def test_sspaddmm(mnk, sparsity, alpha_beta, dtype):
     mat1 = mat1_d.to(device).to_sparse()
     mat2 = mat2_d.to(device)
 
-    with flag_gems.use_gems():
-        res = torch.sspaddmm(inp, mat1, mat2, beta=beta, alpha=alpha)
+    res = sspaddmm(inp, mat1, mat2, beta=beta, alpha=alpha)
 
     assert res.layout == torch.sparse_coo
     res_dense = res.to_dense().to("cpu")
@@ -99,8 +99,7 @@ def test_sspaddmm_out(mnk, alpha_beta, dtype):
     mat2 = mat2_d.to(device)
     out = torch.empty((m, n), dtype=dtype, device=device).to_sparse()
 
-    with flag_gems.use_gems():
-        res = torch.sspaddmm(inp, mat1, mat2, beta=beta, alpha=alpha, out=out)
+    res = sspaddmm_out(inp, mat1, mat2, beta=beta, alpha=alpha, out=out)
 
     assert res.layout == torch.sparse_coo
     res_dense = res.to_dense().to("cpu")

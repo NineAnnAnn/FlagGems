@@ -7081,6 +7081,7 @@ ops:
     kind:
       - Math
     stages:
+      - alpha: '5.4'
   - id: sspaddmm_out
     description: |
       A variant of sspaddmm() that writes the result into the out tensor.
@@ -7092,6 +7093,7 @@ ops:
     kind:
       - Math
     stages:
+      - alpha: '5.4'
   - id: unflatten
     description: Expand a single dimension into multiple dimensions (inverse of flatten).
     for:
