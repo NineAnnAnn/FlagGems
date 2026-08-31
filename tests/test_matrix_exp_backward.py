@@ -27,8 +27,7 @@ def test_matrix_exp_backward(shape, dtype):
     ref_grad = utils.to_reference(grad_inp, upcast=True)
 
     ref_out = torch.ops.aten.matrix_exp_backward(ref_self, ref_grad)
-    with flag_gems.use_gems():
-        res_out = torch.ops.aten.matrix_exp_backward(self_inp, grad_inp)
+    res_out = flag_gems.matrix_exp_backward(self_inp, grad_inp)
 
     # matrix_exp_backward chains many matmuls over the 2n x 2n block matrix, so
     # accumulation error scales with the contraction dimension (cf. bmm tests
