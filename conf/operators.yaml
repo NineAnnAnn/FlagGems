@@ -3402,6 +3402,7 @@ ops:
     kind:
       - Math
     stages:
+      - stable: '1.0'
   - id: matrix_power_out
     description: |
       A variant of matrix_power() that writes the result into the out tensor.
@@ -3413,6 +3414,7 @@ ops:
     kind:
       - Math
     stages:
+      - stable: '1.0'
   - id: native_dropout_backward
     description: The backward case of `dropout()`.
     for:

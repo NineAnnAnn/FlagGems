@@ -45,8 +45,7 @@ def test_matrix_power(batch_shape, dim, n, dtype):
     ref_inp = utils.to_reference(res_inp)
 
     ref_out = torch.matrix_power(ref_inp, n)
-    with flag_gems.use_gems():
-        res_out = torch.matrix_power(res_inp, n)
+    res_out = flag_gems.matrix_power(res_inp, n)
 
     # Accumulated error scales with the matrix dimension and the number of products.
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=dim * max(n, 1))
@@ -64,8 +63,7 @@ def test_matrix_power_negative(batch_shape, dim, n, dtype):
     ref_inp = utils.to_reference(res_inp)
 
     ref_out = torch.matrix_power(ref_inp, n)
-    with flag_gems.use_gems():
-        res_out = torch.matrix_power(res_inp, n)
+    res_out = flag_gems.matrix_power(res_inp, n)
 
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=dim * abs(n))
 
@@ -83,7 +81,6 @@ def test_matrix_power_out(batch_shape, dim, n, dtype):
     torch.matrix_power(ref_inp, n, out=ref_out)
 
     res_out = torch.empty_like(res_inp)
-    with flag_gems.use_gems():
-        torch.matrix_power(res_inp, n, out=res_out)
+    flag_gems.matrix_power_out(res_inp, n, out=res_out)
 
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=dim * max(n, 1))
