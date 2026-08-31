@@ -71,8 +71,7 @@ def test_take_along_dim(dtype, inp_shape, idx_shape, dim):
     ref_idx = utils.to_reference(index)
 
     ref_out = torch.take_along_dim(ref_inp, ref_idx, dim=dim)
-    with flag_gems.use_gems():
-        res_out = torch.take_along_dim(inp, index, dim=dim)
+    res_out = flag_gems.take_along_dim(inp, index, dim=dim)
 
     # Pure gather: values must match exactly.
     utils.gems_assert_equal(res_out, ref_out)
@@ -87,8 +86,7 @@ def test_take_along_dim_dtypes(dtype):
     ref_idx = utils.to_reference(index)
 
     ref_out = torch.take_along_dim(ref_inp, ref_idx, dim=1)
-    with flag_gems.use_gems():
-        res_out = torch.take_along_dim(inp, index, dim=1)
+    res_out = flag_gems.take_along_dim(inp, index, dim=1)
 
     utils.gems_assert_equal(res_out, ref_out)
 
@@ -105,8 +103,7 @@ def test_take_along_dim_none(dtype):
     ref_idx = utils.to_reference(index)
 
     ref_out = torch.take_along_dim(ref_inp, ref_idx)
-    with flag_gems.use_gems():
-        res_out = torch.take_along_dim(inp, index)
+    res_out = flag_gems.take_along_dim(inp, index)
 
     utils.gems_assert_equal(res_out, ref_out)
 
@@ -121,8 +118,7 @@ def test_take_along_dim_noncontiguous(dtype):
     ref_idx = utils.to_reference(index)
 
     ref_out = torch.take_along_dim(ref_inp, ref_idx, dim=1)
-    with flag_gems.use_gems():
-        res_out = torch.take_along_dim(inp, index, dim=1)
+    res_out = flag_gems.take_along_dim(inp, index, dim=1)
 
     utils.gems_assert_equal(res_out, ref_out)
 
@@ -139,8 +135,7 @@ def test_take_along_dim_out(dtype, inp_shape, idx_shape, dim):
 
     ref_out = torch.take_along_dim(ref_inp, ref_idx, dim=dim)
     out = torch.empty_like(ref_out, device=flag_gems.device)
-    with flag_gems.use_gems():
-        res_out = torch.take_along_dim(inp, index, dim=dim, out=out)
+    res_out = flag_gems.take_along_dim_out(inp, index, dim=dim, out=out)
 
     assert res_out is out
     utils.gems_assert_equal(res_out, ref_out)
