@@ -50,8 +50,7 @@ def test_conv_depthwise3d(
         groups=channels,
     )
 
-    with flag_gems.use_gems():
-        res_out = torch.ops.aten.conv_depthwise3d(
-            inp, weight, kernel, bias_tensor, stride, padding, dilation
-        )
+    res_out = flag_gems.conv_depthwise3d(
+        inp, weight, kernel, bias_tensor, stride, padding, dilation
+    )
     utils.gems_assert_close(res_out, ref_out, dtype)
