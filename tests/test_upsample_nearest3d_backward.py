@@ -29,10 +29,9 @@ def test_upsample_nearest3d_backward(shape, dtype):
         grad_output, output_size, input_size
     )
 
-    with flag_gems.use_gems():
-        res_grad_input = torch.ops.aten.upsample_nearest3d_backward.default(
-            grad_output.to(flag_gems.device), output_size, input_size
-        )
+    res_grad_input = flag_gems.upsample_nearest3d_backward(
+        grad_output.to(flag_gems.device), output_size, input_size
+    )
 
     utils.gems_assert_close(res_grad_input, ref_grad_input, dtype)
 
@@ -63,15 +62,14 @@ def test_upsample_nearest3d_backward_with_scales(shape, dtype):
         grad_output, output_size, input_size, scale_d, scale_h, scale_w
     )
 
-    with flag_gems.use_gems():
-        res_grad_input = torch.ops.aten.upsample_nearest3d_backward.default(
-            grad_output.to(flag_gems.device),
-            output_size,
-            input_size,
-            scale_d,
-            scale_h,
-            scale_w,
-        )
+    res_grad_input = flag_gems.upsample_nearest3d_backward(
+        grad_output.to(flag_gems.device),
+        output_size,
+        input_size,
+        scale_d,
+        scale_h,
+        scale_w,
+    )
 
     utils.gems_assert_close(res_grad_input, ref_grad_input, dtype)
 
@@ -105,15 +103,14 @@ def test_upsample_nearest3d_backward_grad_input(shape, dtype):
     )
 
     res_grad_input = torch.empty(input_size, dtype=dtype, device=flag_gems.device)
-    with flag_gems.use_gems():
-        res_grad_input = torch.ops.aten.upsample_nearest3d_backward.grad_input(
-            grad_output.to(flag_gems.device),
-            output_size,
-            input_size,
-            None,
-            None,
-            None,
-            grad_input=res_grad_input,
-        )
+    res_grad_input = flag_gems.upsample_nearest3d_backward_grad_input(
+        grad_output.to(flag_gems.device),
+        output_size,
+        input_size,
+        None,
+        None,
+        None,
+        grad_input=res_grad_input,
+    )
 
     utils.gems_assert_close(res_grad_input, ref_grad_input, dtype)
