@@ -33,8 +33,7 @@ def test_sum_to_size(shape, size, dtype):
     ref_inp = utils.to_reference(res_inp, upcast=True)
 
     ref_out = ref_inp.sum_to_size(size)
-    with flag_gems.use_gems():
-        res_out = res_inp.sum_to_size(size)
+    res_out = flag_gems.sum_to_size(res_inp, size)
 
     # Reduction length drives accumulation error, so scale tolerance by it.
     reduce_len = res_inp.numel() // int(torch.tensor(size).prod().item())
@@ -53,14 +52,12 @@ def test_sum_to_size_extreme(dtype):
     res_inp = torch.zeros(shape, dtype=dtype, device=flag_gems.device)
     ref_inp = utils.to_reference(res_inp, upcast=True)
     ref_out = ref_inp.sum_to_size(size)
-    with flag_gems.use_gems():
-        res_out = res_inp.sum_to_size(size)
+    res_out = flag_gems.sum_to_size(res_inp, size)
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=shape[0])
 
     # Uniform-value input.
     res_inp = torch.full(shape, 2.0, dtype=dtype, device=flag_gems.device)
     ref_inp = utils.to_reference(res_inp, upcast=True)
     ref_out = ref_inp.sum_to_size(size)
-    with flag_gems.use_gems():
-        res_out = res_inp.sum_to_size(size)
+    res_out = flag_gems.sum_to_size(res_inp, size)
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=shape[0])
