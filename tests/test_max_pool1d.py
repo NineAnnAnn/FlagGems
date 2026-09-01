@@ -58,15 +58,14 @@ def test_max_pool1d(shape, kernel_size, stride, padding, dilation, ceil_mode, dt
         ceil_mode=ceil_mode,
     )
 
-    with flag_gems.use_gems():
-        res_out = torch.ops.aten.max_pool1d(
-            inp,
-            kernel_size=[kernel_size],
-            stride=[stride],
-            padding=[padding],
-            dilation=[dilation],
-            ceil_mode=ceil_mode,
-        )
+    res_out = flag_gems.max_pool1d(
+        inp,
+        kernel_size=[kernel_size],
+        stride=[stride],
+        padding=[padding],
+        dilation=[dilation],
+        ceil_mode=ceil_mode,
+    )
 
     utils.gems_assert_equal(res_out, ref_out)
 
@@ -92,13 +91,12 @@ def test_max_pool1d_default_stride(
         ceil_mode=ceil_mode,
     )
 
-    with flag_gems.use_gems():
-        res_out = torch.ops.aten.max_pool1d(
-            inp,
-            kernel_size=[kernel_size],
-            padding=[padding],
-            dilation=[dilation],
-            ceil_mode=ceil_mode,
-        )
+    res_out = flag_gems.max_pool1d(
+        inp,
+        kernel_size=[kernel_size],
+        padding=[padding],
+        dilation=[dilation],
+        ceil_mode=ceil_mode,
+    )
 
     utils.gems_assert_equal(res_out, ref_out)
