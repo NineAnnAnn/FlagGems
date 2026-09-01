@@ -25,8 +25,7 @@ def test_linalg_matrix_exp(shape, dtype):
     else:
         ref_out = torch.linalg.matrix_exp(ref_inp)
 
-    with flag_gems.use_gems():
-        res_out = torch.linalg.matrix_exp(inp)
+    res_out = flag_gems.matrix_exp(inp)
 
     utils.gems_assert_close(res_out, ref_out, dtype)
 
@@ -46,8 +45,7 @@ def test_linalg_matrix_exp_batch(shape, dtype):
     else:
         ref_out = torch.linalg.matrix_exp(ref_inp)
 
-    with flag_gems.use_gems():
-        res_out = torch.linalg.matrix_exp(inp)
+    res_out = flag_gems.matrix_exp(inp)
 
     utils.gems_assert_close(res_out, ref_out, dtype)
 
@@ -66,8 +64,7 @@ def test_linalg_matrix_exp_identity(dtype):
     else:
         ref_out = torch.linalg.matrix_exp(ref_inp)
 
-    with flag_gems.use_gems():
-        res_out = torch.linalg.matrix_exp(inp)
+    res_out = flag_gems.matrix_exp(inp)
 
     utils.gems_assert_close(res_out, ref_out, dtype)
 
@@ -86,7 +83,6 @@ def test_linalg_matrix_exp_zero(dtype):
     else:
         ref_out = torch.linalg.matrix_exp(ref_inp)
 
-    with flag_gems.use_gems():
-        res_out = torch.linalg.matrix_exp(inp)
+    res_out = flag_gems.matrix_exp(inp)
 
     utils.gems_assert_close(res_out, ref_out, dtype)
