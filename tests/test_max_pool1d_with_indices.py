@@ -49,15 +49,14 @@ def test_max_pool1d_with_indices(
         ceil_mode=ceil_mode,
     )
 
-    with flag_gems.use_gems():
-        res_out, res_indices = torch.nn.functional.max_pool1d_with_indices(
-            inp,
-            kernel_size=kernel_size,
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            ceil_mode=ceil_mode,
-        )
+    res_out, res_indices = flag_gems.max_pool1d_with_indices(
+        inp,
+        kernel_size=kernel_size,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        ceil_mode=ceil_mode,
+    )
 
     utils.gems_assert_close(res_out, ref_out, dtype)
     utils.gems_assert_equal(res_indices, ref_indices)
