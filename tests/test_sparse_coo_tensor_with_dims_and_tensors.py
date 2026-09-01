@@ -47,10 +47,9 @@ def test_sparse_coo_tensor_with_dims_and_tensors():
         ref_values = utils.to_reference(values)
         ref = _baseline_op(sparse_dim, dense_dim, size, ref_indices, ref_values)
 
-        with flag_gems.use_gems():
-            res = torch.ops.aten._sparse_coo_tensor_with_dims_and_tensors(
-                sparse_dim, dense_dim, size, indices, values
-            )
+        res = flag_gems._sparse_coo_tensor_with_dims_and_tensors(
+            sparse_dim, dense_dim, size, indices, values
+        )
         utils.gems_assert_equal(res, ref)
 
 
@@ -67,10 +66,9 @@ def test_sparse_coo_tensor_with_dims_and_tensors_dtype(dtype):
     ref_values = utils.to_reference(values)
     ref = _baseline_op(sparse_dim, dense_dim, size, ref_indices, ref_values)
 
-    with flag_gems.use_gems():
-        res = torch.ops.aten._sparse_coo_tensor_with_dims_and_tensors(
-            sparse_dim, dense_dim, size, indices, values
-        )
+    res = flag_gems._sparse_coo_tensor_with_dims_and_tensors(
+        sparse_dim, dense_dim, size, indices, values
+    )
     utils.gems_assert_equal(res, ref)
 
 
@@ -96,8 +94,7 @@ def test_sparse_coo_tensor_with_dims_and_tensors_is_coalesced():
             is_coalesced=is_coalesced,
         )
 
-        with flag_gems.use_gems():
-            res = torch.ops.aten._sparse_coo_tensor_with_dims_and_tensors(
-                sparse_dim, dense_dim, size, indices, values, is_coalesced=is_coalesced
-            )
+        res = flag_gems._sparse_coo_tensor_with_dims_and_tensors(
+            sparse_dim, dense_dim, size, indices, values, is_coalesced=is_coalesced
+        )
         utils.gems_assert_equal(res, ref)
