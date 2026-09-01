@@ -39,10 +39,9 @@ def test_conv_tbc_backward(shape, dtype):
     ref_gi, ref_gw, ref_gb = torch.ops.aten.conv_tbc_backward(
         ref_grad_output, ref_inp, ref_weight, ref_bias, pad
     )
-    with flag_gems.use_gems():
-        res_gi, res_gw, res_gb = torch.ops.aten.conv_tbc_backward(
-            grad_output, inp, weight, bias, pad
-        )
+    res_gi, res_gw, res_gb = flag_gems.conv_tbc_backward(
+        grad_output, inp, weight, bias, pad
+    )
 
     # grad_input / grad_weight accumulate over reduction dims; scale tolerance.
     utils.gems_assert_close(res_gi, ref_gi, dtype, reduce_dim=kw * out_c)
