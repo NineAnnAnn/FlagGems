@@ -44,10 +44,7 @@ def test_matmul_backward(self_shape, other_shape, dtype):
     ref_grad = utils.to_reference(grad, True)
     ref_gs, ref_go = _reference_grads(ref_self, ref_other, ref_grad)
 
-    with flag_gems.use_gems():
-        res_gs, res_go = torch.ops.aten.matmul_backward(
-            grad, self_t, other_t, [True, True]
-        )
+    res_gs, res_go = flag_gems.matmul_backward(grad, self_t, other_t, [True, True])
 
     utils.gems_assert_close(res_gs, ref_gs, dtype, reduce_dim=self_t.shape[-1])
     utils.gems_assert_close(res_go, ref_go, dtype, reduce_dim=self_t.shape[-1])
@@ -68,10 +65,7 @@ def test_matmul_backward_self_only(self_shape, other_shape, dtype):
     ref_grad = utils.to_reference(grad, True)
     ref_gs, _ = _reference_grads(ref_self, ref_other, ref_grad)
 
-    with flag_gems.use_gems():
-        res_gs, res_go = torch.ops.aten.matmul_backward(
-            grad, self_t, other_t, [True, False]
-        )
+    res_gs, res_go = flag_gems.matmul_backward(grad, self_t, other_t, [True, False])
 
     assert res_go is None
     utils.gems_assert_close(res_gs, ref_gs, dtype, reduce_dim=self_t.shape[-1])
@@ -92,10 +86,7 @@ def test_matmul_backward_other_only(self_shape, other_shape, dtype):
     ref_grad = utils.to_reference(grad, True)
     _, ref_go = _reference_grads(ref_self, ref_other, ref_grad)
 
-    with flag_gems.use_gems():
-        res_gs, res_go = torch.ops.aten.matmul_backward(
-            grad, self_t, other_t, [False, True]
-        )
+    res_gs, res_go = flag_gems.matmul_backward(grad, self_t, other_t, [False, True])
 
     assert res_gs is None
     utils.gems_assert_close(res_go, ref_go, dtype, reduce_dim=self_t.shape[-1])
