@@ -72,19 +72,18 @@ def test_convolution_backward_overrideable(
         output_mask,
     )
 
-    with flag_gems.use_gems():
-        res_gi, res_gw, res_gb = torch.ops.aten.convolution_backward_overrideable(
-            grad_out,
-            inp,
-            weight,
-            stride_t,
-            padding_t,
-            dilation_t,
-            False,
-            output_padding,
-            groups,
-            output_mask,
-        )
+    res_gi, res_gw, res_gb = flag_gems.convolution_backward_overrideable(
+        grad_out,
+        inp,
+        weight,
+        stride_t,
+        padding_t,
+        dilation_t,
+        False,
+        output_padding,
+        groups,
+        output_mask,
+    )
 
     utils.gems_assert_close(res_gi, ref_gi, dtype, reduce_dim=weight.shape[2])
     utils.gems_assert_close(res_gw, ref_gw, dtype, reduce_dim=weight.shape[0])
@@ -127,22 +126,21 @@ def test_convolution_backward_overrideable_out(
     out1 = torch.empty_like(weight)
     out2 = torch.empty(weight.shape[0], dtype=dtype, device=flag_gems.device)
 
-    with flag_gems.use_gems():
-        res_gi, res_gw, res_gb = torch.ops.aten.convolution_backward_overrideable.out(
-            grad_out,
-            inp,
-            weight,
-            stride_t,
-            padding_t,
-            dilation_t,
-            False,
-            output_padding,
-            groups,
-            output_mask,
-            out0=out0,
-            out1=out1,
-            out2=out2,
-        )
+    res_gi, res_gw, res_gb = flag_gems.convolution_backward_overrideable_out(
+        grad_out,
+        inp,
+        weight,
+        stride_t,
+        padding_t,
+        dilation_t,
+        False,
+        output_padding,
+        groups,
+        output_mask,
+        out0=out0,
+        out1=out1,
+        out2=out2,
+    )
 
     utils.gems_assert_close(res_gi, ref_gi, dtype, reduce_dim=weight.shape[2])
     utils.gems_assert_close(res_gw, ref_gw, dtype, reduce_dim=weight.shape[0])
