@@ -74,18 +74,17 @@ def test_convolution_overrideable(shape, kernel, groups, stride, padding, bias, 
         groups,
     ).to(dtype)
 
-    with flag_gems.use_gems():
-        res_out = torch.ops.aten.convolution_overrideable(
-            inp,
-            weight,
-            bias_tensor,
-            [stride, stride],
-            [padding, padding],
-            dilation,
-            transposed,
-            output_padding,
-            groups,
-        )
+    res_out = flag_gems.convolution_overrideable(
+        inp,
+        weight,
+        bias_tensor,
+        [stride, stride],
+        [padding, padding],
+        dilation,
+        transposed,
+        output_padding,
+        groups,
+    )
 
     # Scale tolerance by the contraction size (in_channels/group * kH * kW).
     reduce_dim = max((kernel[1]) * kernel[2] * kernel[3], 1)
@@ -117,18 +116,17 @@ def test_convolution_overrideable_transposed(dtype):
         1,
     ).to(dtype)
 
-    with flag_gems.use_gems():
-        res_out = torch.ops.aten.convolution_overrideable(
-            inp,
-            weight,
-            bias_tensor,
-            [1, 1],
-            [1, 1],
-            [1, 1],
-            True,
-            [0, 0],
-            1,
-        )
+    res_out = flag_gems.convolution_overrideable(
+        inp,
+        weight,
+        bias_tensor,
+        [1, 1],
+        [1, 1],
+        [1, 1],
+        True,
+        [0, 0],
+        1,
+    )
 
     # Transposed weight layout is (in_channels, out_channels/groups, kH, kW), so
     # each output element accumulates over in_channels * kH * kW terms (groups=1
@@ -165,19 +163,18 @@ def test_convolution_overrideable_out(shape, kernel, groups, dtype):
     ).to(dtype)
 
     out = torch.empty_like(ref_out.to(flag_gems.device))
-    with flag_gems.use_gems():
-        res_out = torch.ops.aten.convolution_overrideable.out(
-            inp,
-            weight,
-            bias_tensor,
-            [1, 1],
-            [1, 1],
-            [1, 1],
-            False,
-            [0, 0],
-            groups,
-            out=out,
-        )
+    res_out = flag_gems.convolution_overrideable_out(
+        inp,
+        weight,
+        bias_tensor,
+        [1, 1],
+        [1, 1],
+        [1, 1],
+        False,
+        [0, 0],
+        groups,
+        out=out,
+    )
 
     reduce_dim = max((kernel[1]) * kernel[2] * kernel[3], 1)
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=reduce_dim)
