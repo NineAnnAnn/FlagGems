@@ -21,6 +21,57 @@ TRIPLET_MARGIN_LOSS_CONFIGS = runtime.get_tuned_config("triplet_margin_loss")
 @libentry()
 @libtuner(configs=TRIPLET_MARGIN_LOSS_CONFIGS, key=["D"])
 @triton.jit
+def triplet_margin_loss_p1_kernel(
+    anchor_ptr,
+    positive_ptr,
+    negative_ptr,
+    out_ptr,
+    N,
+    D,
+    eps,
+    margin,
+    SWAP: tl.constexpr,
+    BLOCK_M: tl.constexpr,
+    BLOCK_D: tl.constexpr,
+):
+    acc_dtype = tl.float64 if anchor_ptr.type.element_ty == tl.float64 else tl.float32
+    pid = tl.program_id(0) * BLOCK_M + tl.arange(0, BLOCK_M)[:, None]
+    row_mask = pid < N
+
+    acc_ap = tl.zeros([BLOCK_M], dtype=acc_dtype)
+    acc_an = tl.zeros([BLOCK_M], dtype=acc_dtype)
+    acc_pn = tl.zeros([BLOCK_M], dtype=acc_dtype)
+
+    for start in range(0, D, BLOCK_D):
+        cols = start + tl.arange(0, BLOCK_D)[None, :]
+        col_mask = cols < D
+        mask = row_mask & col_mask
+        a = tl.load(anchor_ptr + pid * D + cols, mask=mask, other=0).to(acc_dtype)
+        pos = tl.load(positive_ptr + pid * D + cols, mask=mask, other=0).to(acc_dtype)
+        neg = tl.load(negative_ptr + pid * D + cols, mask=mask, other=0).to(acc_dtype)
+
+        diff_ap = tl.abs(a - pos + eps)
+        diff_an = tl.abs(a - neg + eps)
+        acc_ap += tl.sum(tl.where(mask, diff_ap, 0.0), axis=1)
+        acc_an += tl.sum(tl.where(mask, diff_an, 0.0), axis=1)
+        if SWAP:
+            diff_pn = tl.abs(pos - neg + eps)
+            acc_pn += tl.sum(tl.where(mask, diff_pn, 0.0), axis=1)
+
+    dist_ap = acc_ap
+    dist_an = acc_an
+    if SWAP:
+        dist_pn = acc_pn
+        dist_an = tl.minimum(dist_an, dist_pn)
+
+    loss = dist_ap - dist_an + margin
+    loss = tl.maximum(loss, 0.0)
+    tl.store(out_ptr + pid, loss[:, None], row_mask)
+
+
+@libentry()
+@libtuner(configs=TRIPLET_MARGIN_LOSS_CONFIGS, key=["D"])
+@triton.jit
 def triplet_margin_loss_p2_kernel(
     anchor_ptr,
     positive_ptr,
@@ -157,7 +208,19 @@ def triplet_margin_loss(
         grid = lambda meta: (triton.cdiv(N, meta["BLOCK_M"]),)  # noqa: E731
 
         with torch_device_fn.device(anchor.device):
-            if p == 2.0:
+            if p == 1.0:
+                triplet_margin_loss_p1_kernel[grid](
+                    anchor,
+                    positive,
+                    negative,
+                    out,
+                    N,
+                    D,
+                    eps,
+                    margin,
+                    SWAP=swap,
+                )
+            elif p == 2.0:
                 triplet_margin_loss_p2_kernel[grid](
                     anchor,
                     positive,
