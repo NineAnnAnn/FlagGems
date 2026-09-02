@@ -21,8 +21,7 @@ def test_trapz(shape, dtype, dx, dim):
 
     ref_out = torch.trapezoid(ref_inp, dx=dx, dim=dim)
 
-    with flag_gems.use_gems():
-        res_out = torch.trapezoid(inp, dx=dx, dim=dim)
+    res_out = flag_gems.trapz(inp, dx=dx, dim=dim)
 
     # Trapezoid is a reduction; scale atol by the reduced dimension length
     reduce_dim = shape[dim]
@@ -38,8 +37,7 @@ def test_trapz_edge_cases(dtype):
     ref_inp = utils.to_reference(inp, True)
     ref_out = torch.trapezoid(ref_inp, dx=1.0)
 
-    with flag_gems.use_gems():
-        res_out = torch.trapezoid(inp, dx=1.0)
+    res_out = flag_gems.trapz(inp, dx=1.0)
     utils.gems_assert_close(res_out, ref_out, dtype)
 
     # Two elements
@@ -47,8 +45,7 @@ def test_trapz_edge_cases(dtype):
     ref_inp = utils.to_reference(inp, True)
     ref_out = torch.trapezoid(ref_inp, dx=1.0)
 
-    with flag_gems.use_gems():
-        res_out = torch.trapezoid(inp, dx=1.0)
+    res_out = flag_gems.trapz(inp, dx=1.0)
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=2)
 
 
@@ -62,8 +59,7 @@ def test_trapz_large_reduction(shape, dtype):
 
     ref_out = torch.trapezoid(ref_inp, dx=0.01, dim=-1)
 
-    with flag_gems.use_gems():
-        res_out = torch.trapezoid(inp, dx=0.01, dim=-1)
+    res_out = flag_gems.trapz(inp, dx=0.01, dim=-1)
 
     # Large reduction accumulates more error
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=shape[-1])
