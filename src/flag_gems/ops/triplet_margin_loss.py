@@ -101,18 +101,19 @@ def triplet_margin_loss_p2_kernel(
         pos = tl.load(positive_ptr + pid * D + cols, mask=mask, other=0).to(acc_dtype)
         neg = tl.load(negative_ptr + pid * D + cols, mask=mask, other=0).to(acc_dtype)
 
-        diff_ap = tl.abs(a - pos + eps)
-        diff_an = tl.abs(a - neg + eps)
+        diff_ap = a - pos
+        diff_an = a - neg
         acc_ap += tl.sum(tl.where(mask, diff_ap * diff_ap, 0.0), axis=1)
         acc_an += tl.sum(tl.where(mask, diff_an * diff_an, 0.0), axis=1)
         if SWAP:
-            diff_pn = tl.abs(pos - neg + eps)
+            diff_pn = pos - neg
             acc_pn += tl.sum(tl.where(mask, diff_pn * diff_pn, 0.0), axis=1)
 
-    dist_ap = tl.sqrt(acc_ap)
-    dist_an = tl.sqrt(acc_an)
+    # For p=2.0: eps is added after sum, before sqrt
+    dist_ap = tl.sqrt(acc_ap + eps)
+    dist_an = tl.sqrt(acc_an + eps)
     if SWAP:
-        dist_pn = tl.sqrt(acc_pn)
+        dist_pn = tl.sqrt(acc_pn + eps)
         dist_an = tl.minimum(dist_an, dist_pn)
 
     loss = dist_ap - dist_an + margin
@@ -154,13 +155,13 @@ def triplet_margin_loss_general_kernel(
         pos = tl.load(positive_ptr + pid * D + cols, mask=mask, other=0).to(acc_dtype)
         neg = tl.load(negative_ptr + pid * D + cols, mask=mask, other=0).to(acc_dtype)
 
-        diff_ap = tl.abs(a - pos + eps)
-        diff_an = tl.abs(a - neg + eps)
-        acc_ap += tl.sum(tl.where(mask, exp2(p * log2(diff_ap)), 0.0), axis=1)
-        acc_an += tl.sum(tl.where(mask, exp2(p * log2(diff_an)), 0.0), axis=1)
+        diff_ap = tl.abs(a - pos)
+        diff_an = tl.abs(a - neg)
+        acc_ap += tl.sum(tl.where(mask, exp2(p * log2(diff_ap + eps)), 0.0), axis=1)
+        acc_an += tl.sum(tl.where(mask, exp2(p * log2(diff_an + eps)), 0.0), axis=1)
         if SWAP:
-            diff_pn = tl.abs(pos - neg + eps)
-            acc_pn += tl.sum(tl.where(mask, exp2(p * log2(diff_pn)), 0.0), axis=1)
+            diff_pn = tl.abs(pos - neg)
+            acc_pn += tl.sum(tl.where(mask, exp2(p * log2(diff_pn + eps)), 0.0), axis=1)
 
     inv_p = 1.0 / p
     dist_ap = exp2(inv_p * log2(acc_ap))
