@@ -50,19 +50,19 @@ def triplet_margin_loss_p1_kernel(
         pos = tl.load(positive_ptr + pid * D + cols, mask=mask, other=0).to(acc_dtype)
         neg = tl.load(negative_ptr + pid * D + cols, mask=mask, other=0).to(acc_dtype)
 
-        # For p=1.0: sum(|diff| + eps) - element-wise eps
-        diff_ap = tl.abs(a - pos) + eps
-        diff_an = tl.abs(a - neg) + eps
+        # For p=1.0: sum(|diff|) + eps (eps added after sum)
+        diff_ap = tl.abs(a - pos)
+        diff_an = tl.abs(a - neg)
         acc_ap += tl.sum(tl.where(mask, diff_ap, 0.0), axis=1)
         acc_an += tl.sum(tl.where(mask, diff_an, 0.0), axis=1)
         if SWAP:
-            diff_pn = tl.abs(pos - neg) + eps
+            diff_pn = tl.abs(pos - neg)
             acc_pn += tl.sum(tl.where(mask, diff_pn, 0.0), axis=1)
 
-    dist_ap = acc_ap
-    dist_an = acc_an
+    dist_ap = acc_ap + eps
+    dist_an = acc_an + eps
     if SWAP:
-        dist_pn = acc_pn
+        dist_pn = acc_pn + eps
         dist_an = tl.minimum(dist_an, dist_pn)
 
     loss = dist_ap - dist_an + margin
