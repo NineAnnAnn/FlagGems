@@ -51,7 +51,7 @@ def test_conv_tbc_out(shape, dtype):
     ref_weight = utils.to_reference(weight, True)
     ref_bias = utils.to_reference(bias, True)
 
-    ref_out = torch.conv_tbc(ref_inp, ref_weight, ref_bias, pad)
+    ref_out = torch.ops.aten.conv_tbc.out(ref_inp, ref_weight, ref_bias, pad)
     res_out = torch.empty((Tout, B, Cout), dtype=dtype, device=flag_gems.device)
     with flag_gems.use_gems():
         torch.ops.aten.conv_tbc.out(inp, weight, bias, pad, out=res_out)
