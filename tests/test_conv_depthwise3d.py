@@ -40,7 +40,7 @@ def test_conv_depthwise3d(
     # groups=channels is mathematically identical and shares the same weight
     # layout (C, 1, kd, kh, kw), so it works on both CPU and GPU references.
     channels = shape_input[1]
-    ref_out = torch.nn.functional.conv3d(
+    ref_out = torch.ops.aten.conv_depthwise3d(
         ref_inp,
         ref_weight,
         ref_bias,
