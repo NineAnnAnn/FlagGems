@@ -355,7 +355,7 @@ def simple_unique_consecutive_flat(
             num_warps=8,
         )
 
-    out_size = unique_size.item()
+    out_size = int(unique_size.item())
     counts = None
     if return_counts:
         idx = idx[:out_size]
@@ -371,7 +371,7 @@ def simple_unique_consecutive_flat(
                 num_warps=8,
             )
 
-    return data_out[:out_size], inverse_indices, counts
+    return data_out[0:out_size], inverse_indices, counts
 
 
 def large_unique_consecutive_flat(
@@ -444,7 +444,7 @@ def large_unique_consecutive_flat(
             return_counts=return_counts,
             num_warps=num_warps,
         )
-        out_size = tile_sum[-1].item()
+        out_size = int(tile_sum[-1].item())
 
         counts = None
         if return_counts:
@@ -460,7 +460,7 @@ def large_unique_consecutive_flat(
                 num_warps=num_warps,
             )
 
-    return data_out[:out_size], inverse_indices, counts
+    return data_out[0:out_size], inverse_indices, counts
 
 
 def unique_consecutive(
