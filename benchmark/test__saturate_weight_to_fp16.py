@@ -20,7 +20,7 @@ import flag_gems
 from . import base, consts
 
 
-@pytest.mark.saturate_weight_to_fp16
+@pytest.mark._saturate_weight_to_fp16
 def test__saturate_weight_to_fp16():
     # Note: PyTorch's _saturate_weight_to_fp16 has a broken CPU implementation
     # that crashes, so we benchmark against torch.clamp as the reference
