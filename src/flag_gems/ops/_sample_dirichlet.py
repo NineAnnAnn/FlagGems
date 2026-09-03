@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 @triton.jit
-def sample_gamma_marsaglia_tsang(alpha, seed, c0, c1, z):
+def sample_gamma_marsaglia_tsang(alpha, seed, c0, c1, z, MAX_ITER: tl.constexpr):
     """
     Sample from Gamma(alpha, 1) using Marsaglia-Tsang method.
     For alpha < 1, use the transformation: Gamma(alpha) = Gamma(alpha+1) * U^(1/alpha)
@@ -42,11 +42,19 @@ def sample_gamma_marsaglia_tsang(alpha, seed, c0, c1, z):
     d = alpha_boosted - 1.0 / 3.0
     c = 1.0 / tl.sqrt(9.0 * d)
 
-    # Rejection sampling loop (fixed 100 iterations, no break)
+    # Rejection sampling loop. Marsaglia-Tsang has a very high acceptance rate
+    # (> 95% per iteration), so nearly every lane accepts within a few draws.
+    # `result` is locked to the *first* acceptance (guarded by `~done`), so once
+    # every lane in the block has accepted there is nothing left to compute and
+    # we exit early. For a given seed this yields the exact same value as running
+    # the full loop; MAX_ITER only bounds the worst case. Each iteration draws
+    # philox at counter c0 + iter*4, so iterations never share randomness.
     result = alpha * 0.0
     done = alpha < 0.0  # Initialize to all False
 
-    for iter in range(100):
+    iter = 0
+    n_remaining = tl.sum((~done).to(tl.int32))
+    while (iter < MAX_ITER) and (n_remaining > 0):
         # Generate normal sample using Box-Muller
         r0, r1, r2, r3 = tl.philox(seed, c0 + iter * 4, c1, z, z)
         u1 = tl.maximum(uint_to_uniform_float(r0), 1e-10)
@@ -78,8 +86,13 @@ def sample_gamma_marsaglia_tsang(alpha, seed, c0, c1, z):
         result = tl.where(~done & accept, gamma_sample, result)
         done = done | accept
 
-    # For alpha < 1, apply correction: multiply by U^(1/alpha)
-    r0, r1, r2, r3 = tl.philox(seed, c0 + 404, c1, z, z)
+        iter += 1
+        n_remaining = tl.sum((~done).to(tl.int32))
+
+    # For alpha < 1, apply correction: multiply by U^(1/alpha). The correction
+    # draws at a fixed counter past the loop's range (MAX_ITER*4 + 4), so it is
+    # independent of how many rejection iterations each lane actually consumed.
+    r0, r1, r2, r3 = tl.philox(seed, c0 + MAX_ITER * 4 + 4, c1, z, z)
     u_correct = tl.maximum(uint_to_uniform_float(r0), 1e-10)
     correction = tl.exp(tl.log(u_correct) / alpha_orig)
     result = tl.where(alpha_orig < 1.0, result * correction, result)
@@ -97,6 +110,7 @@ def sample_dirichlet_kernel(
     philox_seed,
     philox_offset,
     BLOCK_K: tl.constexpr,
+    MAX_ITER: tl.constexpr,
 ):
     """
     Sample from Dirichlet distribution.
@@ -129,7 +143,7 @@ def sample_dirichlet_kernel(
         c1 = ((counter_base >> 32) & 0xFFFFFFFF).to(tl.uint32)
         z = c0 * 0
 
-        gamma = sample_gamma_marsaglia_tsang(alpha, philox_seed, c0, c1, z)
+        gamma = sample_gamma_marsaglia_tsang(alpha, philox_seed, c0, c1, z, MAX_ITER)
 
         # Accumulate sum
         gamma_sum += tl.sum(tl.where(mask, gamma, 0.0))
@@ -189,6 +203,11 @@ def _sample_dirichlet(input, generator=None):
     # Use power-of-2 block size
     BLOCK_K = triton.next_power_of_2(min(K, 1024))
 
+    # Worst-case rejection iterations. Marsaglia-Tsang accepts in ~1 draw on
+    # average; the kernel exits as soon as every lane has accepted, so this is
+    # only a safety bound and is rarely reached.
+    MAX_ITER = 100
+
     grid = (N,)
     with torch_device_fn.device(inp.device):
         sample_dirichlet_kernel[grid](
@@ -199,6 +218,7 @@ def _sample_dirichlet(input, generator=None):
             philox_seed,
             philox_offset,
             BLOCK_K=BLOCK_K,
+            MAX_ITER=MAX_ITER,
         )
 
     return out.reshape(orig_shape)
