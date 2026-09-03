@@ -165,7 +165,6 @@ _FULL_CONFIG = (
     ("_jagged_to_padded_dense_forward", _jagged_to_padded_dense_forward),
     ("_linalg_eigvals", _linalg_eigvals),
     ("_list_to_tensor", _list_to_tensor),
-    ("conv_transpose3d", conv_transpose3d),
     ("_log_softmax", log_softmax),
     ("_log_softmax.out", log_softmax_out),
     ("_log_softmax_backward_data", log_softmax_backward),
@@ -453,6 +452,7 @@ _FULL_CONFIG = (
     ("conv3d.padding", conv3d),
     ("conv_transpose1d", conv_transpose1d),
     ("conv_transpose2d", conv_transpose2d),
+    ("conv_transpose3d", conv_transpose3d),
     (
         "copy_",
         copy_,
