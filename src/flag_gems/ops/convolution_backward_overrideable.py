@@ -23,14 +23,14 @@ logger = logging.getLogger(__name__)
 
 @contextlib.contextmanager
 def _full_precision_matmul():
-    # This op leans on torch's conv_transpose2d / bmm for the gradient math. Called
-    # directly those resolve to cuDNN / cuBLAS, which on Ampere-and-later default to
-    # TF32 (10-bit mantissa) for fp32 GEMMs -- enough to blow past the fp32 backward
-    # tolerance, since grad_weight sums N * Ho * Wo terms. FlagGems' own Triton
-    # matmul kernels always pass allow_tf32=False, so pin the eager path to the same
-    # full-precision contract here and restore the caller's flags on exit. Under
-    # use_gems() the inner ops re-dispatch to those Triton kernels, so this guard is
-    # a harmless no-op.
+    # This op leans on torch's conv_transpose2d / convolution_backward for the
+    # gradient math. Called directly those resolve to cuDNN, which on Ampere-and-later
+    # defaults to TF32 (10-bit mantissa) for fp32 convolutions -- enough to blow past
+    # the fp32 backward tolerance, since grad_weight sums N * Ho * Wo terms. FlagGems'
+    # own Triton matmul kernels always pass allow_tf32=False, so pin the eager path to
+    # the same full-precision contract here and restore the caller's flags on exit.
+    # Under use_gems() the inner ops re-dispatch to those Triton kernels, so this guard
+    # is a harmless no-op.
     prev_matmul = torch.backends.cuda.matmul.allow_tf32
     prev_cudnn = torch.backends.cudnn.allow_tf32
     torch.backends.cuda.matmul.allow_tf32 = False
@@ -108,102 +108,38 @@ def _conv2d_grad_weight(
 ):
     # grad_weight[co, ci, kh, kw] = sum over (n, ho, wo) of
     #   out_grad[n, co, ho, wo] * input_patch[n, ci, kh, kw, ho, wo].
-    # This is an im2col matmul: gather the input's receptive-field patches into
-    # columns [N, Cin_g*kH*kW, Ho*Wo], then contract the Ho*Wo (and N) axes
-    # against the output gradient [N, Cout_g, Ho*Wo] with a batched matmul and
-    # sum the per-sample results over N. This hands the heavy reduction to a
-    # tensor-core GEMM instead of the shared conv2d weight-gradient kernel, whose
-    # per-output-pixel loop is orders of magnitude slower on large spatial sizes.
     #
-    # The patches are materialized with as_strided (a pure view) rather than
-    # torch.nn.functional.unfold: unfold would re-dispatch through FlagGems'
-    # im2col kernel while this op runs under use_gems(), so keeping the gather as
-    # a view sidesteps that and only bmm is delegated to a Triton kernel.
-    out_channels, weight_c, weight_height, weight_width = weight_shape
-    out_c = out_channels // groups
-    in_n = input.shape[0]
-    out_height, out_width = out_grad.shape[2], out_grad.shape[3]
-
-    stride_height, stride_width = stride
-    padding_height, padding_width = padding
-    dilation_height, dilation_width = dilation
-
-    out_grad = out_grad.contiguous()
-    # Zero-pad the spatial dims up front so the strided patch gather stays fully
-    # in-bounds; explicit padding also lets as_strided express the receptive
-    # field with a simple stride pattern.
-    if padding_height > 0 or padding_width > 0:
-        input = torch.nn.functional.pad(
-            input, (padding_width, padding_width, padding_height, padding_height)
-        )
-    input = input.contiguous()
-    n_stride, c_stride, h_stride, w_stride = input.stride()
-
-    spatial = out_height * out_width
-
-    def _grad_weight_group(input_g, grad_g):
-        # input_g: [N, Cin_g, Hpad, Wpad]; grad_g: [N, Cout_g, Ho, Wo].
-        # Patches shape [N, Cin_g, kH, kW, Ho, Wo]: kernel taps advance by the
-        # dilation, output positions advance by the stride.
-        cols = torch.as_strided(
-            input_g,
-            (in_n, weight_c, weight_height, weight_width, out_height, out_width),
-            (
-                n_stride,
-                c_stride,
-                h_stride * dilation_height,
-                w_stride * dilation_width,
-                h_stride * stride_height,
-                w_stride * stride_width,
-            ),
-        ).reshape(in_n, weight_c * weight_height * weight_width, spatial)
-        grad_flat = grad_g.reshape(in_n, out_c, spatial)
-
-        if input_g.dtype in (torch.float16, torch.bfloat16):
-            # Fuse the N and Ho*Wo axes into a single contraction dimension and do
-            # ONE matmul: [Cout_g, N*Ho*Wo] @ [N*Ho*Wo, Cin_g*kH*kW]. The GEMM
-            # accumulates every term in its fp32 accumulator and rounds the result
-            # to the input dtype exactly once. A per-sample bmm would instead round
-            # each of the N partials to fp16/bf16 before summing them, and that
-            # intermediate rounding drifts past the backward tolerance; the older
-            # fix promoted both operands to fp32, which was accurate but paid for a
-            # full fp32 copy of the (large) im2col tensor. The fused GEMM keeps the
-            # operands in their native dtype, so it is both accurate and avoids that
-            # materialization.
-            a = grad_flat.transpose(0, 1).reshape(out_c, in_n * spatial)
-            b = cols.transpose(0, 1).reshape(
-                weight_c * weight_height * weight_width, in_n * spatial
-            )
-            weight_group = torch.mm(a, b.transpose(0, 1))
-            return weight_group.to(torch.float32).reshape(
-                out_c, weight_c, weight_height, weight_width
-            )
-
-        # fp32 (and wider): the operands already carry full precision and each
-        # bmm contraction over Ho*Wo accumulates in fp32, so a per-sample batched
-        # matmul followed by a fp32 sum over N is both accurate and faster here
-        # than the single thin (M = Cout_g) GEMM above.
-        # [N, Cout_g, Ho*Wo] @ [N, Ho*Wo, Cin_g*kH*kW] -> [N, Cout_g, Cin_g*kH*kW].
-        per_sample = torch.bmm(grad_flat, cols.transpose(1, 2))
-        return (
-            per_sample.to(torch.float32)
-            .sum(0)
-            .reshape(out_c, weight_c, weight_height, weight_width)
-        )
-
-    if groups == 1:
-        weight_back = _grad_weight_group(input, out_grad)
-        return weight_back.to(torch.float32)
-
-    # Grouped conv: each group owns a contiguous slice of the input channels and
-    # output-gradient channels; accumulate their weight gradients independently.
-    parts = []
-    for gi in range(groups):
-        input_g = input[:, gi * weight_c : (gi + 1) * weight_c]
-        grad_g = out_grad[:, gi * out_c : (gi + 1) * out_c]
-        parts.append(_grad_weight_group(input_g, grad_g))
-    weight_back = torch.cat(parts, dim=0).contiguous()
-    return weight_back.to(torch.float32)
+    # The natural decomposition is an im2col matmul: gather the input's
+    # receptive-field patches into columns [N, Cin_g*kH*kW, Ho*Wo] and contract
+    # them against the output gradient. That works, but the im2col view expands
+    # the input by a factor of kH*kW, so on the large-spatial-size shapes the
+    # contraction reads a multi-hundred-MB strided tensor and is hard bound by
+    # memory bandwidth -- measurably slower than cuDNN's implicit-GEMM weight
+    # gradient, which streams the input once and never materializes the columns.
+    #
+    # aten.convolution_backward is that implicit-GEMM path. It is a *different*
+    # operator from convolution_backward_overrideable and is not registered by
+    # FlagGems, so requesting only the weight gradient from it neither recurses
+    # into this op nor re-dispatches to a gems kernel under use_gems(): it is the
+    # same first-class-primitive delegation the grad_input path already makes to
+    # conv_transpose2d. The implicit GEMM accumulates in fp32 internally, so the
+    # result clears the fp32 backward tolerance once _full_precision_matmul() has
+    # pinned the cuDNN math to full precision.
+    weight = out_grad.new_empty(1).expand(weight_shape)
+    grad_weight = torch.ops.aten.convolution_backward(
+        out_grad,
+        input,
+        weight,
+        None,
+        stride,
+        padding,
+        dilation,
+        False,
+        [0, 0],
+        groups,
+        (False, True, False),
+    )[1]
+    return grad_weight.to(torch.float32)
 
 
 def _normalize_pair(value):
