@@ -144,10 +144,47 @@ def _matmul_2d(a, b, out=None):
 
 def _normalize_dims(dims, ndim):
     # Map (possibly negative) dim indices into the range [0, ndim).
-    return [d % ndim for d in dims]
+    # Raise error for out-of-range dimensions.
+    normalized = []
+    for d in dims:
+        if d < -ndim or d >= ndim:
+            raise IndexError(
+                f"Dimension out of range (expected to be in range of [{-ndim}, {ndim-1}], but got {d})"
+            )
+        normalized.append(d if d >= 0 else d + ndim)
+    return normalized
 
 
 def _tensordot_impl(self, other, dims_self, dims_other, out=None):
+    # Validate supported dtypes - only floating point types
+    supported_dtypes = {torch.float16, torch.float32, torch.bfloat16}
+    if runtime.device.support_fp64:
+        supported_dtypes.add(torch.float64)
+
+    if self.dtype not in supported_dtypes:
+        raise RuntimeError(
+            f"tensordot: unsupported dtype {self.dtype}. "
+            f"Only floating point dtypes are supported."
+        )
+
+    if other.dtype not in supported_dtypes:
+        raise RuntimeError(
+            f"tensordot: unsupported dtype {other.dtype}. "
+            f"Only floating point dtypes are supported."
+        )
+
+    # Validate dtype and device match
+    if self.dtype != other.dtype:
+        raise RuntimeError(
+            f"tensordot: expected self and other to have the same dtype, "
+            f"but got {self.dtype} and {other.dtype}"
+        )
+    if self.device != other.device:
+        raise RuntimeError(
+            f"tensordot: expected self and other to be on the same device, "
+            f"but got {self.device} and {other.device}"
+        )
+
     dims_self = _normalize_dims(list(dims_self), self.ndim)
     dims_other = _normalize_dims(list(dims_other), other.ndim)
 
@@ -179,12 +216,25 @@ def _tensordot_impl(self, other, dims_self, dims_other, out=None):
     result_shape = free_self_sizes + free_other_sizes
 
     if out is not None:
+        # Validate and resize out tensor without reshaping it
+        expected_size = M * N
+        if out.numel() != expected_size:
+            raise RuntimeError(
+                f"tensordot: output tensor has incorrect size. "
+                f"Expected {expected_size} elements, but got {out.numel()}"
+            )
+
         c_dtype = get_higher_dtype(a2d.dtype, b2d.dtype)
-        if out.is_contiguous() and out.dtype == c_dtype:
-            _matmul_2d(a2d, b2d, out=out.reshape(M, N))
-        else:
-            res = _matmul_2d(a2d, b2d)
-            out.reshape(M, N).copy_(res)
+        if out.dtype != c_dtype:
+            raise RuntimeError(
+                f"tensordot: output tensor has incorrect dtype. "
+                f"Expected {c_dtype}, but got {out.dtype}"
+            )
+
+        # Compute result and copy to out without creating temporary via reshape
+        res = _matmul_2d(a2d, b2d)
+        out_view = out.view(M, N)
+        out_view.copy_(res)
         return out
 
     res = _matmul_2d(a2d, b2d)
