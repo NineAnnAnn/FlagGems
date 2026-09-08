@@ -14,10 +14,23 @@
 
 import pytest
 import torch
+from _pytest.mark.structures import Mark, MarkDecorator
 
 import flag_gems
 
 from . import base, consts
+
+# ``_saturate_weight_to_fp16`` starts with an underscore, and ``pytest.mark`` refuses to
+# generate a marker via attribute access for such names. Register it directly
+# on the MarkGenerator so ``@pytest.mark._saturate_weight_to_fp16`` and ``-m
+# _saturate_weight_to_fp16`` both work.
+setattr(
+    pytest.mark,
+    "_saturate_weight_to_fp16",
+    MarkDecorator(
+        Mark("_saturate_weight_to_fp16", (), {}, _ispytest=True), _ispytest=True
+    ),
+)
 
 
 @pytest.mark._saturate_weight_to_fp16
