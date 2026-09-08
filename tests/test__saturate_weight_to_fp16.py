@@ -14,10 +14,23 @@
 
 import pytest
 import torch
+from _pytest.mark.structures import Mark, MarkDecorator
 
 import flag_gems
 
 from . import accuracy_utils as utils
+
+# ``_saturate_weight_to_fp16`` starts with an underscore, and ``pytest.mark`` refuses to
+# generate a marker via attribute access for such names. Register it directly
+# on the MarkGenerator so ``@pytest.mark._saturate_weight_to_fp16`` and ``-m
+# _saturate_weight_to_fp16`` both work.
+setattr(
+    pytest.mark,
+    "_saturate_weight_to_fp16",
+    MarkDecorator(
+        Mark("_saturate_weight_to_fp16", (), {}, _ispytest=True), _ispytest=True
+    ),
+)
 
 # FP16 representable range
 FP16_MAX = 65504.0
@@ -29,7 +42,7 @@ def reference_saturate_weight_to_fp16(x):
     return torch.clamp(x, FP16_MIN, FP16_MAX)
 
 
-@pytest.mark.saturate_weight_to_fp16
+@pytest.mark._saturate_weight_to_fp16
 @pytest.mark.parametrize("shape", utils.POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
 def test__saturate_weight_to_fp16(shape, dtype):
@@ -42,7 +55,7 @@ def test__saturate_weight_to_fp16(shape, dtype):
     utils.gems_assert_close(res_out, ref_out, dtype)
 
 
-@pytest.mark.saturate_weight_to_fp16
+@pytest.mark._saturate_weight_to_fp16
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
 def test__saturate_weight_to_fp16_extreme_values(dtype):
     # Test with values that exceed fp16 range
@@ -63,7 +76,7 @@ def test__saturate_weight_to_fp16_extreme_values(dtype):
     utils.gems_assert_close(res_out, ref_out, dtype)
 
 
-@pytest.mark.saturate_weight_to_fp16
+@pytest.mark._saturate_weight_to_fp16
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
 def test__saturate_weight_to_fp16_boundary(dtype):
     # Test exact boundary values
@@ -80,7 +93,7 @@ def test__saturate_weight_to_fp16_boundary(dtype):
     utils.gems_assert_close(res_out, ref_out, dtype)
 
 
-@pytest.mark.saturate_weight_to_fp16
+@pytest.mark._saturate_weight_to_fp16
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
 def test__saturate_weight_to_fp16_nan(dtype):
     # Test NaN propagation
