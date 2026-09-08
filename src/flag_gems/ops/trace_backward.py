@@ -47,6 +47,12 @@ def trace_backward_kernel(
 def trace_backward(grad, sizes):
     logger.debug("GEMS TRACE_BACKWARD")
 
+    if grad.dim() != 0:
+        raise RuntimeError(
+            f"trace_backward: expected grad to be a 0-dimensional tensor, "
+            f"but got {grad.dim()} dimensions"
+        )
+
     if len(sizes) != 2:
         raise RuntimeError(
             f"trace_backward: expected sizes to describe a 2D tensor, "
@@ -55,7 +61,6 @@ def trace_backward(grad, sizes):
 
     N, M = int(sizes[0]), int(sizes[1])
 
-    grad = grad.contiguous()
     out = torch.zeros((N, M), dtype=grad.dtype, device=grad.device)
 
     numel = N * M

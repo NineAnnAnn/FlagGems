@@ -30,6 +30,10 @@ TRACE_BACKWARD_SHAPES = [
     (1024, 1024),
     (1, 1000),
     (1000, 1),
+    (0, 10),
+    (10, 0),
+    (0, 0),
+    (1025, 1025),
 ]
 
 
@@ -41,7 +45,6 @@ def test_trace_backward(shape, dtype):
     ref_grad = utils.to_reference(res_grad)
 
     ref_out = torch.ops.aten.trace_backward(ref_grad, list(shape))
-    with flag_gems.use_gems():
-        res_out = torch.ops.aten.trace_backward(res_grad, list(shape))
+    res_out = flag_gems.trace_backward(res_grad, list(shape))
 
     utils.gems_assert_equal(res_out, ref_out)
