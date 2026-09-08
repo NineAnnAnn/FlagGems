@@ -57,9 +57,7 @@ def simple_unique_consecutive_flat_kernel(
 
     # unique_size is the last cumsum value
     unique_size_mask = i0 == num_tasks - 1
-    tl.store(
-        unique_size_ptr + tl.zeros_like(i0), cumsum, mask=unique_size_mask
-    )
+    tl.store(unique_size_ptr + tl.zeros_like(i0), cumsum, mask=unique_size_mask)
 
     # data_out: scatter unique values to their output positions
     # Only write when this is the first element of a consecutive group
@@ -99,9 +97,7 @@ def output_counts_impl(
 
     # counts = next_idx - current_idx
     # (or total - current_idx for last element)
-    counts = tl.where(
-        i0_next < num_tasks, idx_next - idx, origin_num_tasks - idx
-    )
+    counts = tl.where(i0_next < num_tasks, idx_next - idx, origin_num_tasks - idx)
 
     # store counts
     tl.store(counts_ptr + i0, counts, mask=mask)
@@ -411,9 +407,7 @@ def large_unique_consecutive_flat(
 
     # allocate tensors
     ne_result = torch.empty(num_tasks, dtype=torch.bool, device=data.device)
-    tile_sum = torch.empty(
-        global_ctas_num, dtype=torch.int64, device=data.device
-    )
+    tile_sum = torch.empty(global_ctas_num, dtype=torch.int64, device=data.device)
     data_out = torch.empty_like(data)
     inverse_indices = (
         torch.empty(num_tasks, dtype=torch.int64, device=data.device)
