@@ -13874,6 +13874,10 @@ ops:
   labels:
   - aten
   - KernelGen
+  kind:
+  - BLAS
+  stages:
+  - alpha: '5.4'
 - id: tensordot_out
   description: A variant of tensordot() that writes the result into the out tensor.
   for:
@@ -13881,6 +13885,10 @@ ops:
   labels:
   - aten
   - KernelGen
+  kind:
+  - BLAS
+  stages:
+  - alpha: '5.4'
 - id: thnn_differentiable_gru_cell_backward
   description: Computes differentiable gradients for a fused GRU cell.
   for:
