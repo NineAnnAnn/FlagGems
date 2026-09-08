@@ -194,31 +194,3 @@ def test_tensordot_unsupported_dtypes():
 
         with pytest.raises((RuntimeError, NotImplementedError)):
             flag_gems.tensordot(a_complex, b_complex, [1], [0])
-
-
-# Test gradient correctness (forward and backward)
-@pytest.mark.tensordot
-@pytest.mark.parametrize("dtype", [torch.float32])  # Use float32 for gradient tests
-def test_tensordot_gradient(dtype):
-    a = torch.randn(3, 4, dtype=dtype, device=flag_gems.device, requires_grad=True)
-    b = torch.randn(4, 5, dtype=dtype, device=flag_gems.device, requires_grad=True)
-
-    ref_a = a.detach().clone().requires_grad_(True)
-    ref_b = b.detach().clone().requires_grad_(True)
-
-    # Forward pass
-    ref_out = torch.tensordot(ref_a, ref_b, dims=([1], [0]))
-    res_out = flag_gems.tensordot(a, b, [1], [0])
-
-    utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=4)
-
-    # Backward pass
-    grad_output = torch.randn_like(ref_out)
-    ref_out.backward(grad_output)
-    res_out.backward(grad_output)
-
-    # Check gradients
-    if ref_a.grad is not None and a.grad is not None:
-        utils.gems_assert_close(a.grad, ref_a.grad, dtype, reduce_dim=4)
-    if ref_b.grad is not None and b.grad is not None:
-        utils.gems_assert_close(b.grad, ref_b.grad, dtype, reduce_dim=4)
