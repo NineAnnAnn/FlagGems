@@ -25,7 +25,9 @@ from . import accuracy_utils as utils
 @pytest.mark.parametrize("dtype", utils.INT_DTYPES)
 @pytest.mark.parametrize("return_inverse", [True, False])
 @pytest.mark.parametrize("return_counts", [False, True])
-def test_accuracy_unique_consecutive(shape, dtype, return_inverse, return_counts):
+def test_accuracy_unique_consecutive(
+    shape, dtype, return_inverse, return_counts
+):
     if dtype in utils.FLOAT_DTYPES:
         inp = torch.randn(shape, dtype=dtype, device=flag_gems.device)
     else:
