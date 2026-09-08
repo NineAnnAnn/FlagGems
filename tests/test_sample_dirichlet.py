@@ -25,7 +25,7 @@ def test_sample_dirichlet(shape, dtype):
 
     # Sum over the last dimension must be 1 for every sample.
     row_sums = res_out.sum(dim=-1)
-    ref_sums = torch.ones(shape[0], dtype=dtype, device="cpu")
+    ref_sums = utils.to_reference(torch.ones_like(row_sums))
     utils.gems_assert_close(row_sums, ref_sums, dtype)
 
 
@@ -41,9 +41,7 @@ def test_sample_dirichlet_uniform_alpha(dtype):
     res_out = flag_gems._sample_dirichlet(alpha)
 
     mean_vals = res_out.float().mean(dim=0)
-    expected_mean = torch.full(
-        (shape[-1],), 1.0 / shape[-1], dtype=torch.float32, device="cpu"
-    )
+    expected_mean = utils.to_reference(torch.full_like(mean_vals, 1.0 / shape[-1]))
     # Loose atol: Monte-Carlo estimate over a finite sample.
     utils.gems_assert_close(mean_vals, expected_mean, torch.float32, atol=0.05)
 
@@ -77,5 +75,5 @@ def test_sample_dirichlet_1d(dtype):
 
     assert res_out.shape == (3,)
     total = res_out.sum().reshape(1)
-    ref_total = torch.ones(1, dtype=dtype, device="cpu")
+    ref_total = utils.to_reference(torch.ones_like(total))
     utils.gems_assert_close(total, ref_total, dtype)
