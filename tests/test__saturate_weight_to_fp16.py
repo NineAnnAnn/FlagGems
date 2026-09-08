@@ -29,7 +29,7 @@ def reference_saturate_weight_to_fp16(x):
     return torch.clamp(x, FP16_MIN, FP16_MAX)
 
 
-@pytest.mark._saturate_weight_to_fp16
+@pytest.mark.saturate_weight_to_fp16
 @pytest.mark.parametrize("shape", utils.POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
 def test__saturate_weight_to_fp16(shape, dtype):
@@ -42,7 +42,7 @@ def test__saturate_weight_to_fp16(shape, dtype):
     utils.gems_assert_close(res_out, ref_out, dtype)
 
 
-@pytest.mark._saturate_weight_to_fp16
+@pytest.mark.saturate_weight_to_fp16
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
 def test__saturate_weight_to_fp16_extreme_values(dtype):
     # Test with values that exceed fp16 range
@@ -63,7 +63,7 @@ def test__saturate_weight_to_fp16_extreme_values(dtype):
     utils.gems_assert_close(res_out, ref_out, dtype)
 
 
-@pytest.mark._saturate_weight_to_fp16
+@pytest.mark.saturate_weight_to_fp16
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
 def test__saturate_weight_to_fp16_boundary(dtype):
     # Test exact boundary values
@@ -78,3 +78,20 @@ def test__saturate_weight_to_fp16_boundary(dtype):
     res_out = flag_gems._saturate_weight_to_fp16(inp)
 
     utils.gems_assert_close(res_out, ref_out, dtype)
+
+
+@pytest.mark.saturate_weight_to_fp16
+@pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
+def test__saturate_weight_to_fp16_nan(dtype):
+    # Test NaN propagation
+    inp = torch.tensor(
+        [float("nan"), 1.0, -1.0, float("nan"), 65505.0, float("nan")],
+        dtype=dtype,
+        device=flag_gems.device,
+    )
+    ref_inp = utils.to_reference(inp)
+
+    ref_out = reference_saturate_weight_to_fp16(ref_inp)
+    res_out = flag_gems._saturate_weight_to_fp16(inp)
+
+    utils.gems_assert_close(res_out, ref_out, dtype, equal_nan=True)
