@@ -130,7 +130,7 @@ def test_trapezoid_x_1d(shape, dtype):
     ref_x = utils.to_reference(res_x, upcast=True)
 
     ref_out = torch.trapezoid(ref_inp, ref_x)
-    res_out = flag_gems.trapezoid(res_inp, res_x)
+    res_out = flag_gems.trapezoid_x(res_inp, res_x)
 
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=n)
 
@@ -149,7 +149,7 @@ def test_trapezoid_x_same_shape(dtype):
     ref_x = utils.to_reference(res_x, upcast=True)
 
     ref_out = torch.trapezoid(ref_inp, ref_x)
-    res_out = flag_gems.trapezoid(res_inp, res_x)
+    res_out = flag_gems.trapezoid_x(res_inp, res_x)
 
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=shape[-1])
 
@@ -168,7 +168,7 @@ def test_trapezoid_x_dim(dim, dtype):
     ref_x = utils.to_reference(res_x, upcast=True)
 
     ref_out = torch.trapezoid(ref_inp, ref_x, dim=dim)
-    res_out = flag_gems.trapezoid(res_inp, res_x, dim=dim)
+    res_out = flag_gems.trapezoid_x(res_inp, res_x, dim=dim)
 
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=n)
 
@@ -184,7 +184,7 @@ def test_trapezoid_x_fp64(dtype):
     ref_x = utils.to_reference(res_x, upcast=False)
 
     ref_out = torch.trapezoid(ref_inp, ref_x)
-    res_out = flag_gems.trapezoid(res_inp, res_x)
+    res_out = flag_gems.trapezoid_x(res_inp, res_x)
 
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=shape[-1])
 
@@ -195,14 +195,15 @@ def test_trapezoid_x_non_contiguous(dtype):
     # Test non-contiguous y and x
     shape = (20, 32, 15)
     res_inp = torch.randn(shape, dtype=dtype, device=flag_gems.device).transpose(0, 1)
-    res_x = torch.sort(torch.randn(shape[0], dtype=dtype, device=flag_gems.device))[0]
+    # After transpose(0,1), shape becomes (32, 20, 15), so dim=0 needs 32 elements
+    res_x = torch.sort(torch.randn(32, dtype=dtype, device=flag_gems.device))[0]
     ref_inp = utils.to_reference(res_inp, upcast=True)
     ref_x = utils.to_reference(res_x, upcast=True)
 
     ref_out = torch.trapezoid(ref_inp, ref_x, dim=0)
-    res_out = flag_gems.trapezoid(res_inp, res_x, dim=0)
+    res_out = flag_gems.trapezoid_x(res_inp, res_x, dim=0)
 
-    utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=shape[0])
+    utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=32)
 
 
 @pytest.mark.trapezoid_x
@@ -219,7 +220,7 @@ def test_trapezoid_x_broadcasting(dtype):
     ref_x = utils.to_reference(res_x, upcast=True)
 
     ref_out = torch.trapezoid(ref_y, ref_x)
-    res_out = flag_gems.trapezoid(res_y, res_x)
+    res_out = flag_gems.trapezoid_x(res_y, res_x)
 
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=y_shape[-1])
 
@@ -236,7 +237,7 @@ def test_trapezoid_x_mismatched_length(dtype):
     with pytest.raises(
         RuntimeError, match="There must be one `x` value for each sample point"
     ):
-        flag_gems.trapezoid(res_inp, res_x)
+        flag_gems.trapezoid_x(res_inp, res_x)
 
 
 @pytest.mark.trapezoid_x
@@ -250,6 +251,6 @@ def test_trapezoid_x_zero_size(dtype):
     ref_x = utils.to_reference(res_x, upcast=True)
 
     ref_out = torch.trapezoid(ref_inp, ref_x)
-    res_out = flag_gems.trapezoid(res_inp, res_x)
+    res_out = flag_gems.trapezoid_x(res_inp, res_x)
 
     utils.gems_assert_close(res_out, ref_out, dtype)
