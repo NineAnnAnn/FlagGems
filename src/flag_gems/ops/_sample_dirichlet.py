@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 def sample_gamma_marsaglia_tsang(alpha, seed, c0, c1, z, MAX_ITER: tl.constexpr):
     """
     Sample from Gamma(alpha, 1) using Marsaglia-Tsang method.
-    For alpha < 1, use the transformation: Gamma(alpha) = Gamma(alpha+1) * U^(1/alpha)
+    For alpha < 1, use the transformation:
+        Gamma(alpha) = Gamma(alpha+1) * U^(1/alpha)
     """
     # For alpha < 1, boost to alpha + 1
     alpha_orig = alpha
@@ -42,13 +43,14 @@ def sample_gamma_marsaglia_tsang(alpha, seed, c0, c1, z, MAX_ITER: tl.constexpr)
     d = alpha_boosted - 1.0 / 3.0
     c = 1.0 / tl.sqrt(9.0 * d)
 
-    # Rejection sampling loop. Marsaglia-Tsang has a very high acceptance rate
-    # (> 95% per iteration), so nearly every lane accepts within a few draws.
-    # `result` is locked to the *first* acceptance (guarded by `~done`), so once
-    # every lane in the block has accepted there is nothing left to compute and
-    # we exit early. For a given seed this yields the exact same value as running
-    # the full loop; MAX_ITER only bounds the worst case. Each iteration draws
-    # philox at counter c0 + iter*4, so iterations never share randomness.
+    # Rejection sampling loop. Marsaglia-Tsang has a very high acceptance
+    # rate (> 95% per iteration), so nearly every lane accepts within a
+    # few draws. `result` is locked to the *first* acceptance (guarded by
+    # `~done`), so once every lane in the block has accepted there is
+    # nothing left to compute and we exit early. For a given seed this
+    # yields the exact same value as running the full loop; MAX_ITER only
+    # bounds the worst case. Each iteration draws philox at counter
+    # c0 + iter*4, so iterations never share randomness.
     result = alpha * 0.0
     done = alpha < 0.0  # Initialize to all False
 
@@ -73,7 +75,8 @@ def sample_gamma_marsaglia_tsang(alpha, seed, c0, c1, z, MAX_ITER: tl.constexpr)
         v3 = v * v * v
         log_v = tl.log(v)
 
-        # Acceptance condition: U < 1 - 0.0331*x^4 (squeeze) or log(U) < 0.5*x^2 + d*(1 - v^3 + log(v^3))
+        # Acceptance condition: U < 1 - 0.0331*x^4 (squeeze)
+        # or log(U) < 0.5*x^2 + d*(1 - v^3 + log(v^3))
         x2 = x * x
         squeeze = 1.0 - 0.0331 * x2 * x2
         accept_squeeze = v_uniform < squeeze
@@ -162,7 +165,8 @@ def _sample_dirichlet(input, generator=None):
         generator: Optional random generator
 
     Returns:
-        Tensor of same shape as input, where each K-dimensional vector sums to 1
+        Tensor of same shape as input, where each K-dimensional vector
+        sums to 1
     """
     logger.debug("GEMS _SAMPLE_DIRICHLET")
 

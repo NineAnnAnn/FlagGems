@@ -10,9 +10,10 @@ from . import accuracy_utils as utils
 @pytest.mark.parametrize("shape", [(10, 5), (20, 10), (100, 3), (5, 20)])
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
 def test_sample_dirichlet(shape, dtype):
-    # _sample_dirichlet is stochastic, so it is validated by the distribution's
-    # defining property (each K-dim sample is non-negative and sums to 1) rather
-    # than an elementwise match against a reference draw.
+    # _sample_dirichlet is stochastic, so it is validated by the
+    # distribution's defining property (each K-dim sample is non-negative
+    # and sums to 1) rather than an elementwise match against a reference
+    # draw.
     torch.manual_seed(42)
     alpha = torch.rand(shape, dtype=dtype, device=flag_gems.device) * 5.0 + 0.5
 
