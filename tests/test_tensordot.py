@@ -58,8 +58,7 @@ def test_tensordot(shape_a, shape_b, dims_a, dims_b, dtype):
     ref_b = utils.to_reference(b, upcast=True)
 
     ref_out = torch.tensordot(ref_a, ref_b, dims=(dims_a, dims_b))
-    with flag_gems.use_gems():
-        res_out = torch.tensordot(a, b, dims=(dims_a, dims_b))
+    res_out = flag_gems.tensordot(a, b, dims_a, dims_b)
 
     utils.gems_assert_close(
         res_out, ref_out, dtype, reduce_dim=_reduce_dim(shape_a, dims_a)
@@ -209,8 +208,7 @@ def test_tensordot_gradient(dtype):
 
     # Forward pass
     ref_out = torch.tensordot(ref_a, ref_b, dims=([1], [0]))
-    with flag_gems.use_gems():
-        res_out = torch.tensordot(a, b, dims=([1], [0]))
+    res_out = flag_gems.tensordot(a, b, [1], [0])
 
     utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=4)
 
