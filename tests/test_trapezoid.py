@@ -142,7 +142,9 @@ def test_trapezoid_x_same_shape(dtype):
     # (x broadcast identical to the input) with a small fp16-safe extent.
     shape = (20, 32, 15)
     res_inp = torch.randn(shape, dtype=dtype, device=flag_gems.device)
-    res_x = torch.sort(torch.randn(shape, dtype=dtype, device=flag_gems.device), dim=-1)[0]
+    res_x = torch.sort(
+        torch.randn(shape, dtype=dtype, device=flag_gems.device), dim=-1
+    )[0]
     ref_inp = utils.to_reference(res_inp, upcast=True)
     ref_x = utils.to_reference(res_x, upcast=True)
 
@@ -210,7 +212,9 @@ def test_trapezoid_x_broadcasting(dtype):
     y_shape = (4, 5, 6)
     x_shape = (1, 5, 6)
     res_y = torch.randn(y_shape, dtype=dtype, device=flag_gems.device)
-    res_x = torch.sort(torch.randn(x_shape, dtype=dtype, device=flag_gems.device), dim=-1)[0]
+    res_x = torch.sort(
+        torch.randn(x_shape, dtype=dtype, device=flag_gems.device), dim=-1
+    )[0]
     ref_y = utils.to_reference(res_y, upcast=True)
     ref_x = utils.to_reference(res_x, upcast=True)
 
@@ -229,7 +233,9 @@ def test_trapezoid_x_mismatched_length(dtype):
     # Wrong length: 10 instead of 15
     res_x = torch.sort(torch.randn(10, dtype=dtype, device=flag_gems.device))[0]
 
-    with pytest.raises(RuntimeError, match="There must be one `x` value for each sample point"):
+    with pytest.raises(
+        RuntimeError, match="There must be one `x` value for each sample point"
+    ):
         flag_gems.trapezoid(res_inp, res_x)
 
 

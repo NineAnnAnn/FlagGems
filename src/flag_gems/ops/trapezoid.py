@@ -137,7 +137,9 @@ def trapezoid(y, dx=1, dim=-1):
         compute_dtype = tl.float64 if out_dtype == torch.float64 else tl.float32
         grid = lambda meta: (triton.cdiv(M, meta["BLOCK_M"]),)
         with torch_device_fn.device(y.device):
-            trapezoid_dx_kernel[grid](y2, out, float(dx), M, N, COMPUTE_DTYPE=compute_dtype)
+            trapezoid_dx_kernel[grid](
+                y2, out, float(dx), M, N, COMPUTE_DTYPE=compute_dtype
+            )
     return out.reshape(out_shape)
 
 
@@ -190,5 +192,7 @@ def trapezoid_x(y, x, dim=-1):
         compute_dtype = tl.float64 if out_dtype == torch.float64 else tl.float32
         grid = lambda meta: (triton.cdiv(M, meta["BLOCK_M"]),)
         with torch_device_fn.device(y.device):
-            trapezoid_x_kernel[grid](y2, x2, out, M, N, x_m_stride, COMPUTE_DTYPE=compute_dtype)
+            trapezoid_x_kernel[grid](
+                y2, x2, out, M, N, x_m_stride, COMPUTE_DTYPE=compute_dtype
+            )
     return out.reshape(out_shape)
