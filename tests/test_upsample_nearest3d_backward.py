@@ -26,7 +26,7 @@ def test_upsample_nearest3d_backward(shape, dtype):
     input_size = tuple(x.shape)  # (N, C, D, H, W)
 
     ref_grad_input = torch.ops.aten.upsample_nearest3d_backward.default(
-        grad_output, output_size, input_size
+        utils.to_reference(grad_output), output_size, input_size
     )
 
     res_grad_input = flag_gems.upsample_nearest3d_backward(
@@ -59,7 +59,12 @@ def test_upsample_nearest3d_backward_with_scales(shape, dtype):
     input_size = tuple(x.shape)
 
     ref_grad_input = torch.ops.aten.upsample_nearest3d_backward.default(
-        grad_output, output_size, input_size, scale_d, scale_h, scale_w
+        utils.to_reference(grad_output),
+        output_size,
+        input_size,
+        scale_d,
+        scale_h,
+        scale_w,
     )
 
     res_grad_input = flag_gems.upsample_nearest3d_backward(
@@ -74,7 +79,7 @@ def test_upsample_nearest3d_backward_with_scales(shape, dtype):
     utils.gems_assert_close(res_grad_input, ref_grad_input, dtype)
 
 
-@getattr(pytest.mark, "upsample_nearest3d_backward.grad_input")
+@pytest.mark.upsample_nearest3d_backward_grad_input
 @pytest.mark.parametrize("shape", utils.UPSAMPLE_SHAPES_3D)
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
 def test_upsample_nearest3d_backward_grad_input(shape, dtype):

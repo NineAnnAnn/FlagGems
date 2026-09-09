@@ -39,7 +39,7 @@ def test_upsample_nearest3d_backward():
     bench.run()
 
 
-@getattr(pytest.mark, "upsample_nearest3d_backward.grad_input")
+@pytest.mark.upsample_nearest3d_backward_grad_input
 def test_upsample_nearest3d_backward_grad_input():
     bench = UpsampleNearest3dBackwardBenchmark(
         op_name="upsample_nearest3d_backward_grad_input",
