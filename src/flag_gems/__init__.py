@@ -244,6 +244,7 @@ _FULL_CONFIG = (
     ("_softmax_backward_data", softmax_backward),
     ("_softmax_backward_data.out", softmax_backward_out),
     ("_sparse_semi_structured_mm", _sparse_semi_structured_mm),
+    ("_spdiags", _spdiags),
     (
         "_thnn_differentiable_gru_cell_backward",
         _thnn_differentiable_gru_cell_backward,
