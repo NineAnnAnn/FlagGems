@@ -6946,6 +6946,7 @@ ops:
     kind:
       - NeuralNetwork
     stages:
+      - alpha: '5.4'
   - id: weight_int4pack_mm_with_scales_and_zeros
     description: |
       Int4 quantized matrix multiplication with separate scales and zeros. Computes
