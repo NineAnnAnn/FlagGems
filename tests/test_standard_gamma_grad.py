@@ -15,8 +15,8 @@ def test_standard_gamma_grad(shape, dtype):
     res_self_grad = torch.rand(shape, dtype=dtype, device=flag_gems.device) * 4.0 + 0.5
     res_output = torch.rand(shape, dtype=dtype, device=flag_gems.device) * 4.0 + 0.5
 
-    ref_self_grad = utils.to_reference(res_self_grad)
-    ref_output = utils.to_reference(res_output)
+    ref_self_grad = utils.to_reference(res_self_grad, True)
+    ref_output = utils.to_reference(res_output, True)
 
     ref_out = torch._standard_gamma_grad(ref_self_grad, ref_output)
     res_out = flag_gems._standard_gamma_grad(res_self_grad, res_output)
@@ -37,8 +37,8 @@ def test_standard_gamma_grad_near_mode(shape, dtype):
         torch.rand(shape, dtype=dtype, device=flag_gems.device) * 0.2 + 0.9
     )
 
-    ref_self_grad = utils.to_reference(res_self_grad)
-    ref_output = utils.to_reference(res_output)
+    ref_self_grad = utils.to_reference(res_self_grad, True)
+    ref_output = utils.to_reference(res_output, True)
 
     ref_out = torch._standard_gamma_grad(ref_self_grad, ref_output)
     res_out = flag_gems._standard_gamma_grad(res_self_grad, res_output)
@@ -54,8 +54,8 @@ def test_standard_gamma_grad_small_output(shape, dtype):
     res_self_grad = torch.rand(shape, dtype=dtype, device=flag_gems.device) * 4.0 + 0.5
     res_output = torch.rand(shape, dtype=dtype, device=flag_gems.device) * 0.7 + 0.01
 
-    ref_self_grad = utils.to_reference(res_self_grad)
-    ref_output = utils.to_reference(res_output)
+    ref_self_grad = utils.to_reference(res_self_grad, True)
+    ref_output = utils.to_reference(res_output, True)
 
     ref_out = torch._standard_gamma_grad(ref_self_grad, ref_output)
     res_out = flag_gems._standard_gamma_grad(res_self_grad, res_output)
