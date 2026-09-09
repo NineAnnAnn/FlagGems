@@ -25,9 +25,8 @@ def test_upsample_trilinear3d_backward(dtype, shape, scale, align_corners):
     ref_out = torch.ops.aten.upsample_trilinear3d_backward.default(
         ref_grad, output_size, input_size, align_corners, None, None, None
     ).to(dtype)
-    with flag_gems.use_gems():
-        res_out = torch.ops.aten.upsample_trilinear3d_backward.default(
-            grad_output, output_size, input_size, align_corners, None, None, None
-        )
+    res_out = flag_gems.upsample_trilinear3d_backward(
+        grad_output, output_size, input_size, align_corners, None, None, None
+    )
 
     utils.gems_assert_close(res_out, ref_out, dtype)
