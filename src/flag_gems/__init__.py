@@ -272,10 +272,6 @@ _FULL_CONFIG = (
         "_weight_int4pack_mm_with_scales_and_zeros",
         _weight_int4pack_mm_with_scales_and_zeros,
     ),
-    (
-        "_weight_int4pack_mm_with_scales_and_zeros",
-        _weight_int4pack_mm_with_scales_and_zeros,
-    ),
     ("_weight_int8pack_mm", weight_int8pack_mm),
     ("_weight_norm", _weight_norm),
     ("_weight_norm_interface", weight_norm_interface),
