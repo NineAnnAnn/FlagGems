@@ -29,8 +29,12 @@ def test_spdiags_single_diagonal(shape, dtype):
     assert ref_out.layout == torch.sparse_coo
     assert res_out.shape == ref_out.shape
 
-    # Convert to dense for comparison
-    ref_dense = ref_out.to_dense().to(flag_gems.device)
+    # Convert to dense for comparison. gems_assert_close requires res and ref
+    # to share a device: in quick-cpu mode (TO_CPU) it moves res to CPU and
+    # asserts ref is already there, otherwise both must stay on the device.
+    ref_dense = ref_out.to_dense()
+    if not utils.TO_CPU:
+        ref_dense = ref_dense.to(flag_gems.device)
     res_dense = res_out.to_dense()
     utils.gems_assert_close(res_dense, ref_dense, dtype)
 
@@ -59,8 +63,12 @@ def test_spdiags_multiple_diagonals(shape, dtype):
     assert ref_out.layout == torch.sparse_coo
     assert res_out.shape == ref_out.shape
 
-    # Convert to dense for comparison
-    ref_dense = ref_out.to_dense().to(flag_gems.device)
+    # Convert to dense for comparison. gems_assert_close requires res and ref
+    # to share a device: in quick-cpu mode (TO_CPU) it moves res to CPU and
+    # asserts ref is already there, otherwise both must stay on the device.
+    ref_dense = ref_out.to_dense()
+    if not utils.TO_CPU:
+        ref_dense = ref_dense.to(flag_gems.device)
     res_dense = res_out.to_dense()
     utils.gems_assert_close(res_dense, ref_dense, dtype)
 
@@ -85,8 +93,12 @@ def test_spdiags_various_offsets(offset, dtype):
     ref_out = torch.ops.aten._spdiags(ref_diagonals, ref_offsets, list(shape))
     res_out = flag_gems._spdiags(res_diagonals, res_offsets, list(shape))
 
-    # Convert to dense for comparison
-    ref_dense = ref_out.to_dense().to(flag_gems.device)
+    # Convert to dense for comparison. gems_assert_close requires res and ref
+    # to share a device: in quick-cpu mode (TO_CPU) it moves res to CPU and
+    # asserts ref is already there, otherwise both must stay on the device.
+    ref_dense = ref_out.to_dense()
+    if not utils.TO_CPU:
+        ref_dense = ref_dense.to(flag_gems.device)
     res_dense = res_out.to_dense()
     utils.gems_assert_close(res_dense, ref_dense, dtype)
 
@@ -109,8 +121,12 @@ def test_spdiags_non_square(shape, dtype):
     ref_out = torch.ops.aten._spdiags(ref_diagonals, ref_offsets, list(shape))
     res_out = flag_gems._spdiags(res_diagonals, res_offsets, list(shape))
 
-    # Convert to dense for comparison
-    ref_dense = ref_out.to_dense().to(flag_gems.device)
+    # Convert to dense for comparison. gems_assert_close requires res and ref
+    # to share a device: in quick-cpu mode (TO_CPU) it moves res to CPU and
+    # asserts ref is already there, otherwise both must stay on the device.
+    ref_dense = ref_out.to_dense()
+    if not utils.TO_CPU:
+        ref_dense = ref_dense.to(flag_gems.device)
     res_dense = res_out.to_dense()
     utils.gems_assert_close(res_dense, ref_dense, dtype)
 
