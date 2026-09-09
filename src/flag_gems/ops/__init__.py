@@ -137,6 +137,7 @@ from flag_gems.ops._scaled_dot_product_fused_attention_overrideable import (
     _scaled_dot_product_fused_attention_overrideable,
 )
 from flag_gems.ops._sparse_semi_structured_mm import _sparse_semi_structured_mm
+from flag_gems.ops._standard_gamma_grad import _standard_gamma_grad
 from flag_gems.ops._thnn_differentiable_gru_cell_backward import (
     _thnn_differentiable_gru_cell_backward,
 )
@@ -1079,6 +1080,7 @@ __all__ = [
     "_segment_reduce_backward",
     "_segment_reduce_backward_out",
     "_sparse_semi_structured_mm",
+    "_standard_gamma_grad",
     "_thnn_differentiable_gru_cell_backward",
     "_thnn_fused_lstm_cell",
     "_thnn_fused_lstm_cell_backward_impl",
