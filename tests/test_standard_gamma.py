@@ -12,7 +12,10 @@ from . import accuracy_utils as utils
 def test_standard_gamma(shape, dtype):
     # Generate positive alpha values (shape parameter must be positive)
     res_inp = torch.rand(shape, dtype=dtype, device=flag_gems.device) * 5.0 + 0.5
-    ref_inp = utils.to_reference(res_inp)
+    # Upcast the reference input: torch._standard_gamma has no bfloat16 CPU
+    # kernel ("gamma_cpu" not implemented for 'BFloat16'), so in quick-cpu mode
+    # the reference must run in a higher-precision float that CPU supports.
+    ref_inp = utils.to_reference(res_inp, upcast=True)
 
     # For random number generators, we can't compare exact values
     # Instead, we verify:
