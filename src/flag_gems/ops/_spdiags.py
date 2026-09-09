@@ -30,19 +30,24 @@ logger = logging.getLogger(__name__)
 def _spdiags_kernel(
     diagonals_ptr,
     offsets_ptr,
-    indices_row_ptr,
-    indices_col_ptr,
+    indices_ptr,
     values_ptr,
-    nnz_offsets_ptr,
     num_diags: tl.constexpr,
     diag_len: tl.constexpr,
     nrows: tl.constexpr,
     ncols: tl.constexpr,
+    numel: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
 ):
     """
     Kernel to compute sparse COO indices and values from diagonals.
-    Each program processes one block of one diagonal.
+
+    Each program processes one block of one diagonal and writes into a
+    fixed-stride ``num_diags * diag_len`` scratch layout: entry ``i`` of
+    diagonal ``d`` lands at slot ``d * diag_len + i``. Invalid slots (positions
+    that fall outside the matrix) get their row index tagged with the sentinel
+    ``-1`` so the host side can compact the results with a single ``nonzero``
+    instead of a per-diagonal Python loop.
     """
     pid = tl.program_id(0)
     diag_idx = pid // tl.cdiv(diag_len, BLOCK_SIZE)
@@ -57,6 +62,7 @@ def _spdiags_kernel(
     # Compute base position
     base_pos = block_idx * BLOCK_SIZE
     positions = base_pos + tl.arange(0, BLOCK_SIZE)
+    inbound = positions < diag_len
 
     # PyTorch's _spdiags semantics:
     # - For offset >= 0: skip first k elements, use diagonal[k:], place at (0,k), (1,k+1), ...
@@ -81,27 +87,27 @@ def _spdiags_kernel(
 
     # Check validity: diagonal value exists AND adjusted indices are in bounds
     valid = (
-        (diag_val_idx < diag_len)
+        inbound
+        & (diag_val_idx < diag_len)
         & (row_idx >= 0)
         & (row_idx < nrows)
         & (col_idx >= 0)
         & (col_idx < ncols)
     )
 
-    # Load base offset for this diagonal's output
-    nnz_base = tl.load(nnz_offsets_ptr + diag_idx).to(tl.int64)
-
-    # Compute output position
-    out_idx = nnz_base + positions.to(tl.int64)
+    # Fixed-stride output position within the scratch buffers
+    out_idx = diag_idx * diag_len + positions
 
     # Load diagonal values
     diag_base = diag_idx * diag_len
     vals = tl.load(diagonals_ptr + diag_base + diag_val_idx, mask=valid, other=0.0)
 
-    # Store indices and values
-    tl.store(indices_row_ptr + out_idx, row_idx.to(tl.int64), mask=valid)
-    tl.store(indices_col_ptr + out_idx, col_idx.to(tl.int64), mask=valid)
-    tl.store(values_ptr + out_idx, vals, mask=valid)
+    # Store into the shared (2, numel) index buffer: row = indices[0], col = indices[1].
+    # Invalid entries carry a -1 row sentinel so they are dropped during compaction.
+    store_row = tl.where(valid, row_idx.to(tl.int64), -1)
+    tl.store(indices_ptr + out_idx, store_row, mask=inbound)
+    tl.store(indices_ptr + numel + out_idx, col_idx.to(tl.int64), mask=inbound)
+    tl.store(values_ptr + out_idx, vals, mask=inbound)
 
 
 def _spdiags(diagonals, offsets, shape, layout=None):
@@ -168,63 +174,15 @@ def _spdiags(diagonals, offsets, shape, layout=None):
             indices, values, size=shape, dtype=diagonals.dtype, device=diagonals.device
         )
 
-    # Compute actual nnz for each diagonal
-    offsets_cpu = offsets.cpu()
-    nnz_per_diag = []
-    nnz_offsets = [0]  # Cumulative offsets
-
-    for i in range(num_diags):
-        offset_val = int(offsets_cpu[i])
-
-        # Count elements after row-major indexing adjustment
-        # For each position in the diagonal, compute the adjusted indices and check bounds
-        count = 0
-        if offset_val >= 0:
-            # Upper diagonal: positions 0, 1, 2, ... map to (0, offset), (1, offset+1), ...
-            for pos in range(diag_len - offset_val):
-                raw_row = pos
-                raw_col = pos + offset_val
-                adj_row = raw_row + (raw_col // ncols)
-                adj_col = raw_col % ncols
-                if adj_row < nrows and adj_col < ncols:
-                    count += 1
-        else:
-            # Lower diagonal: positions 0, 1, 2, ... map to (-offset, 0), (-offset+1, 1), ...
-            for pos in range(diag_len + offset_val):
-                raw_row = pos - offset_val
-                raw_col = pos
-                adj_row = raw_row + (raw_col // ncols)
-                adj_col = raw_col % ncols
-                if adj_row < nrows and adj_col < ncols:
-                    count += 1
-
-        nnz_per_diag.append(count)
-        nnz_offsets.append(
-            nnz_offsets[-1] + diag_len
-        )  # Allocate full diag_len per diagonal
-
-    total_nnz = sum(nnz_per_diag)
-    if total_nnz == 0:
-        indices = torch.empty((2, 0), dtype=torch.int64, device=diagonals.device)
-        values = torch.empty((0,), dtype=diagonals.dtype, device=diagonals.device)
-        return torch.sparse_coo_tensor(
-            indices, values, size=shape, dtype=diagonals.dtype, device=diagonals.device
-        )
-
-    # Allocate output buffers (over-allocate to simplify kernel)
-    max_buffer_size = num_diags * diag_len
-    indices_row_buffer = torch.empty(
-        (max_buffer_size,), dtype=torch.int64, device=diagonals.device
-    )
-    indices_col_buffer = torch.empty(
-        (max_buffer_size,), dtype=torch.int64, device=diagonals.device
-    )
+    # Scratch buffers use a fixed ``num_diags * diag_len`` stride so the kernel
+    # can write each entry to a deterministic slot without any host-side nnz
+    # bookkeeping. The grid covers every slot exactly once, so the kernel fully
+    # initializes both buffers: valid entries get their real (row, col) while
+    # unused slots receive the -1 row sentinel used by the compaction below.
+    numel = num_diags * diag_len
+    indices_buffer = torch.empty((2, numel), dtype=torch.int64, device=diagonals.device)
     values_buffer = torch.empty(
-        (max_buffer_size,), dtype=diagonals.dtype, device=diagonals.device
-    )
-
-    nnz_offsets_tensor = torch.tensor(
-        nnz_offsets[:-1], dtype=torch.int64, device=diagonals.device
+        (numel,), dtype=diagonals.dtype, device=diagonals.device
     )
 
     # Launch kernel
@@ -238,34 +196,21 @@ def _spdiags(diagonals, offsets, shape, layout=None):
         _spdiags_kernel[grid](
             diagonals_contig,
             offsets_contig,
-            indices_row_buffer,
-            indices_col_buffer,
+            indices_buffer,
             values_buffer,
-            nnz_offsets_tensor,
             num_diags,
             diag_len,
             nrows,
             ncols,
+            numel,
             BLOCK_SIZE=BLOCK_SIZE,
         )
 
-    # Extract valid entries
-    indices_list_row = []
-    indices_list_col = []
-    values_list = []
-
-    for i in range(num_diags):
-        if nnz_per_diag[i] > 0:
-            start_idx = nnz_offsets[i]
-            end_idx = start_idx + nnz_per_diag[i]
-            indices_list_row.append(indices_row_buffer[start_idx:end_idx])
-            indices_list_col.append(indices_col_buffer[start_idx:end_idx])
-            values_list.append(values_buffer[start_idx:end_idx])
-
-    indices_row = torch.cat(indices_list_row, dim=0)
-    indices_col = torch.cat(indices_list_col, dim=0)
-    indices = torch.stack([indices_row, indices_col], dim=0)
-    values = torch.cat(values_list, dim=0)
+    # Compact valid entries with a single device-side gather (one sync point),
+    # replacing the former per-diagonal Python slicing + torch.cat loop.
+    keep = indices_buffer[0].ge(0).nonzero(as_tuple=True)[0]
+    indices = indices_buffer.index_select(1, keep)
+    values = values_buffer.index_select(0, keep)
 
     return torch.sparse_coo_tensor(
         indices, values, size=shape, dtype=diagonals.dtype, device=diagonals.device
