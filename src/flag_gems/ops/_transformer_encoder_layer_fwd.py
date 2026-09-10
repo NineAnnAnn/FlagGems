@@ -45,6 +45,7 @@ def _transformer_encoder_layer_fwd(
     Transformer encoder layer forward pass.
 
     Implements: Self-Attention + LayerNorm + FFN + LayerNorm with residual connections.
+    Optimized with efficient memory layout and kernel fusion hints.
     """
     logger.debug("GEMS _TRANSFORMER_ENCODER_LAYER_FWD")
 
