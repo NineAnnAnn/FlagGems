@@ -51,10 +51,7 @@ def _transformer_encoder_layer_fwd(
     batch_size, seq_len, _ = src.shape
     head_dim = embed_dim // num_heads
 
-    # Helper function for layer norm using PyTorch native layer_norm
     def apply_layer_norm(x, weight, bias):
-        # Use native PyTorch layer norm for accuracy
-        # x shape: (batch, seq_len, embed_dim)
         return torch.nn.functional.layer_norm(x, (embed_dim,), weight, bias, eps)
 
     x = src
@@ -100,7 +97,6 @@ def _transformer_encoder_layer_fwd(
 
     # 2. Activation (GELU or ReLU)
     if use_gelu:
-        # Use PyTorch's GELU with tanh approximation to match the reference implementation
         x = torch.nn.functional.gelu(x, approximate="tanh")
     else:
         x = torch.nn.functional.relu(x)
