@@ -109,7 +109,7 @@ def test_spdiags_various_offsets(offset, dtype):
 def test_spdiags_non_square(shape, dtype):
     """Test non-square matrices"""
     nrows, ncols = shape
-    diag_len = max(nrows, ncols)  # Use larger dimension for diagonal length
+    diag_len = min(nrows, ncols)  # Offset-0 diagonal length is the smaller dimension
 
     res_diagonals = torch.randn((1, diag_len), dtype=dtype, device=flag_gems.device)
     res_offsets = torch.tensor([0], dtype=torch.int64, device=flag_gems.device)
