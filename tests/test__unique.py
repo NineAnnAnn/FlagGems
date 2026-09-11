@@ -6,7 +6,7 @@ import flag_gems
 from . import accuracy_utils as utils
 
 
-@pytest.mark._unique
+@pytest.mark.unique
 @pytest.mark.parametrize("shape", utils.POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
 def test__unique_basic(shape, dtype):
@@ -23,7 +23,7 @@ def test__unique_basic(shape, dtype):
     assert ref_inverse.numel() == 0
 
 
-@pytest.mark._unique
+@pytest.mark.unique
 @pytest.mark.parametrize("shape", utils.POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
 def test__unique_with_inverse(shape, dtype):
@@ -38,7 +38,7 @@ def test__unique_with_inverse(shape, dtype):
     utils.gems_assert_equal(res_inverse, ref_inverse)
 
 
-@pytest.mark._unique
+@pytest.mark.unique
 @pytest.mark.parametrize("shape", [(100,), (1000,)])
 @pytest.mark.parametrize("dtype", utils.INT_DTYPES)
 def test__unique_integers(shape, dtype):
@@ -53,7 +53,7 @@ def test__unique_integers(shape, dtype):
     utils.gems_assert_equal(res_inverse, ref_inverse)
 
 
-@pytest.mark._unique
+@pytest.mark.unique
 def test__unique_all_same():
     """Test _unique when all elements are the same"""
     inp = torch.ones(100, dtype=torch.float32, device=flag_gems.device)
@@ -67,7 +67,7 @@ def test__unique_all_same():
     assert res_out.numel() == 1
 
 
-@pytest.mark._unique
+@pytest.mark.unique
 def test__unique_already_unique():
     """Test _unique when all elements are already unique"""
     inp = torch.arange(100, dtype=torch.float32, device=flag_gems.device)
@@ -80,7 +80,7 @@ def test__unique_already_unique():
     utils.gems_assert_equal(res_inverse, ref_inverse)
 
 
-@pytest.mark._unique
+@pytest.mark.unique
 def test__unique_with_duplicates():
     """Test _unique with specific duplicates pattern"""
     inp = torch.tensor([1, 2, 2, 3, 1, 4], dtype=torch.float32, device=flag_gems.device)
