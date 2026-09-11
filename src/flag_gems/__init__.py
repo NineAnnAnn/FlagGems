@@ -659,6 +659,7 @@ _FULL_CONFIG = (
     ("hardswish_backward", hardswish_backward),
     ("hardtanh_", hardtanh_),
     ("hardtanh_backward", hardtanh_backward),
+    ("hash_tensor", hash_tensor),
     ("heaviside", heaviside),
     ("heaviside_", heaviside_),
     ("histc", histc),
