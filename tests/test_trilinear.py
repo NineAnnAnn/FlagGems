@@ -117,9 +117,8 @@ def test_trilinear_out(shape, dtype):
     ref_i1 = utils.to_reference(res_i1)
     ref_i2 = utils.to_reference(res_i2)
     ref_i3 = utils.to_reference(res_i3)
-    ref_out = torch.empty(shape, dtype=dtype, device="cpu")
 
-    torch._trilinear(ref_i1, ref_i2, ref_i3, [], [], [], [], unroll_dim=1, out=ref_out)
+    ref_out = torch._trilinear(ref_i1, ref_i2, ref_i3, [], [], [], [], unroll_dim=1)
     flag_gems._trilinear_out(
         res_i1, res_i2, res_i3, [], [], [], [], unroll_dim=1, out=res_out
     )
