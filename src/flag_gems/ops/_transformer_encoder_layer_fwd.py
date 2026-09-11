@@ -16,7 +16,7 @@
 import logging
 import math
 
-import torch
+import flag_gems
 
 logger = logging.getLogger(__name__)
 
@@ -45,71 +45,80 @@ def _transformer_encoder_layer_fwd(
     Transformer encoder layer forward pass.
 
     Implements: Self-Attention + LayerNorm + FFN + LayerNorm with residual connections.
-    Optimized with efficient memory layout and kernel fusion hints.
+    Optimized with FlagGems kernels for better performance.
     """
     logger.debug("GEMS _TRANSFORMER_ENCODER_LAYER_FWD")
 
     batch_size, seq_len, _ = src.shape
     head_dim = embed_dim // num_heads
 
-    def apply_layer_norm(x, weight, bias):
-        return torch.nn.functional.layer_norm(x, (embed_dim,), weight, bias, eps)
-
     x = src
 
     # Optionally apply layer norm first (pre-norm architecture)
     if norm_first:
-        x = apply_layer_norm(x, norm_weight_1, norm_bias_1)
+        x, _, _ = flag_gems.layer_norm(x, (embed_dim,), norm_weight_1, norm_bias_1, eps)
 
     # Multi-head self-attention
-    # 1. QKV projection
-    qkv = torch.nn.functional.linear(x, qkv_weight, qkv_bias)
+    # 1. QKV projection using FlagGems linear
+    qkv = flag_gems.linear(x, qkv_weight, qkv_bias)
     qkv = qkv.reshape(batch_size, seq_len, 3, num_heads, head_dim)
     qkv = qkv.permute(2, 0, 3, 1, 4)  # [3, batch, num_heads, seq_len, head_dim]
     q, k, v = qkv[0], qkv[1], qkv[2]
 
     # 2. Scaled dot-product attention
+    # Reshape to 3D for bmm: [batch*num_heads, seq_len, head_dim]
     scale = 1.0 / math.sqrt(head_dim)
-    attn_scores = torch.matmul(q, k.transpose(-2, -1)) * scale
-    attn_probs = torch.nn.functional.softmax(attn_scores, dim=-1)
-    attn_output = torch.matmul(attn_probs, v)
+    batch_heads = batch_size * num_heads
+
+    q_3d = q.reshape(batch_heads, seq_len, head_dim)
+    k_3d = k.reshape(batch_heads, seq_len, head_dim)
+    v_3d = v.reshape(batch_heads, seq_len, head_dim)
+
+    # Attention: Q @ K^T
+    attn_scores = flag_gems.bmm(q_3d, k_3d.transpose(-2, -1)) * scale
+    attn_probs = flag_gems.softmax(attn_scores, dim=-1)
+    # Attention output: attn_probs @ V
+    attn_output = flag_gems.bmm(attn_probs, v_3d)
+
+    # Reshape back to [batch, num_heads, seq_len, head_dim]
+    attn_output = attn_output.reshape(batch_size, num_heads, seq_len, head_dim)
 
     # 3. Reshape and project output
     attn_output = attn_output.transpose(1, 2).reshape(batch_size, seq_len, embed_dim)
-    attn_output = torch.nn.functional.linear(attn_output, proj_weight, proj_bias)
+    attn_output = flag_gems.linear(attn_output, proj_weight, proj_bias)
 
     # 4. First residual connection
     x = src + attn_output
 
     # 5. First layer norm (post-norm) if not norm_first
     if not norm_first:
-        x = apply_layer_norm(x, norm_weight_1, norm_bias_1)
+        x, _, _ = flag_gems.layer_norm(x, (embed_dim,), norm_weight_1, norm_bias_1, eps)
 
     # Store for second residual
     residual = x
 
     # Optionally apply second layer norm first
     if norm_first:
-        x = apply_layer_norm(x, norm_weight_2, norm_bias_2)
+        x, _, _ = flag_gems.layer_norm(x, (embed_dim,), norm_weight_2, norm_bias_2, eps)
 
     # Feedforward network
     # 1. First linear layer
-    x = torch.nn.functional.linear(x, ffn_weight_1, ffn_bias_1)
+    x = flag_gems.linear(x, ffn_weight_1, ffn_bias_1)
 
     # 2. Activation (GELU or ReLU)
     if use_gelu:
-        x = torch.nn.functional.gelu(x, approximate="tanh")
+        x = flag_gems.gelu(x, approximate="tanh")
     else:
-        x = torch.nn.functional.relu(x)
+        x = flag_gems.relu(x)
 
     # 3. Second linear layer
-    x = torch.nn.functional.linear(x, ffn_weight_2, ffn_bias_2)
+    x = flag_gems.linear(x, ffn_weight_2, ffn_bias_2)
 
     # 4. Second residual connection
     x = residual + x
 
     # 5. Second layer norm (post-norm) if not norm_first
     if not norm_first:
-        x = apply_layer_norm(x, norm_weight_2, norm_bias_2)
+        x, _, _ = flag_gems.layer_norm(x, (embed_dim,), norm_weight_2, norm_bias_2, eps)
 
     return x
