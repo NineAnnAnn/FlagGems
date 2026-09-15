@@ -28,7 +28,8 @@ def test_hardswish_(shape, dtype):
     ref_inp = utils.to_reference(inp.clone())
 
     ref_out = torch.ops.aten.hardswish_(ref_inp)
-    res_out = flag_gems.hardswish_(inp)
+    with flag_gems.use_gems():
+        res_out = torch.ops.aten.hardswish_(inp)
 
     utils.gems_assert_close(res_out, ref_out, dtype)
 
@@ -41,7 +42,8 @@ def test_hardswish(shape, dtype):
     ref_inp = utils.to_reference(res_inp, True)
 
     ref_out = torch.nn.functional.hardswish(ref_inp)
-    res_out = flag_gems.hardswish(res_inp)
+    with flag_gems.use_gems():
+        res_out = torch.nn.functional.hardswish(res_inp)
 
     utils.gems_assert_close(res_out, ref_out, dtype)
 
@@ -57,7 +59,8 @@ def test_hardswish_out(shape, dtype):
     torch.ops.aten.hardswish.out(ref_inp, out=ref_out)
 
     out = torch.empty_like(inp)
-    res_out = flag_gems.hardswish_out(inp, out=out)
+    with flag_gems.use_gems():
+        res_out = torch.ops.aten.hardswish.out(inp, out=out)
 
     assert res_out is out
     utils.gems_assert_close(out, ref_out, dtype)
@@ -84,6 +87,7 @@ def test_hardswish_special_values(dtype):
     ref_inp = utils.to_reference(inp, True)
 
     ref_out = torch.nn.functional.hardswish(ref_inp)
-    res_out = flag_gems.hardswish(inp)
+    with flag_gems.use_gems():
+        res_out = torch.nn.functional.hardswish(inp)
 
     utils.gems_assert_close(res_out, ref_out, dtype, equal_nan=True)
