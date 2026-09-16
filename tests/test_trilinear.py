@@ -117,8 +117,13 @@ def test_trilinear_out(shape, dtype):
     ref_i1 = utils.to_reference(res_i1)
     ref_i2 = utils.to_reference(res_i2)
     ref_i3 = utils.to_reference(res_i3)
+    ref_out = torch.empty(shape, dtype=ref_i1.dtype, device=ref_i1.device)
 
-    ref_out = torch._trilinear(ref_i1, ref_i2, ref_i3, [], [], [], [], unroll_dim=1)
+    # torch._trilinear (the Python binding) does not accept ``out``; exercise the
+    # ``out`` overload through the aten op to mirror the tested code path.
+    torch.ops.aten._trilinear.out(
+        ref_i1, ref_i2, ref_i3, [], [], [], [], 1, out=ref_out
+    )
     flag_gems._trilinear_out(
         res_i1, res_i2, res_i3, [], [], [], [], unroll_dim=1, out=res_out
     )

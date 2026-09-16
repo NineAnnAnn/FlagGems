@@ -15557,6 +15557,17 @@ ops:
   description: Computes trilinear product (3-way tensor product) using einsum semantics.
   for:
   - _trilinear
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Math
+  stages:
+  - alpha: '5.4'
+- id: trilinear_out
+  description: A variant of `_trilinear()` that explicitly assigns the output to the
+    `out` parameter.
+  for:
   - _trilinear.out
   labels:
   - aten
