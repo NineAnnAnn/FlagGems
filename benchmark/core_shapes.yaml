@@ -983,3 +983,39 @@ adaptive_max_pool3d:
     - [[2, 8, 16, 32, 32], [4, 16, 16]]
     - [[1, 16, 7, 12, 12], [3, 6, 6]]
   shape_desc: "[input_shape, output_size]"
+
+_unique2:
+  shapes:
+    - [1024]
+    - [4096]
+    - [16384]
+    - [65536]
+    - [262144]
+  shape_desc: "N"
+
+_unique2_return_inverse:
+  shapes:
+    - [1024]
+    - [4096]
+    - [16384]
+    - [65536]
+    - [262144]
+  shape_desc: "N"
+
+_unique2_return_counts:
+  shapes:
+    - [1024]
+    - [4096]
+    - [16384]
+    - [65536]
+    - [262144]
+  shape_desc: "N"
+
+_unique2_return_inverse_counts:
+  shapes:
+    - [1024]
+    - [4096]
+    - [16384]
+    - [65536]
+    - [262144]
+  shape_desc: "N"
