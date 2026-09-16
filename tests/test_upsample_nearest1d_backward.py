@@ -116,3 +116,42 @@ def test_upsample_nearest1d_backward_invalid_size(output_size, input_size):
     grad_output = torch.randn((1, 1, max(output_size[0], 1)), device=flag_gems.device)
     with pytest.raises(RuntimeError):
         flag_gems.upsample_nearest1d_backward(grad_output, output_size, input_size)
+
+
+@pytest.mark.upsample_nearest1d_backward_grad_input
+@pytest.mark.parametrize("noncontiguous", [False, True])
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_upsample_nearest1d_backward_grad_input(dtype, noncontiguous):
+    grad_output = torch.randn((2, 3, 13), dtype=dtype, device=flag_gems.device)
+    ref_grad_output = utils.to_reference(grad_output)
+    input_size = (2, 3, 7)
+
+    if noncontiguous:
+        grad_input = torch.empty((2, 3, 14), dtype=dtype, device=flag_gems.device)[
+            ..., ::2
+        ]
+        ref_grad_input = None
+    else:
+        grad_input = torch.empty(0, dtype=dtype, device=flag_gems.device)
+        ref_grad_input = torch.empty(0, dtype=dtype, device=ref_grad_output.device)
+
+    if ref_grad_input is None:
+        # The native out kernel assumes contiguous storage. Compare the logical
+        # values with the default overload while still exercising the GEMS
+        # grad_input overload and its stride-aware writes.
+        reference = torch.ops.aten.upsample_nearest1d_backward.default(
+            ref_grad_output, (13,), input_size
+        )
+    else:
+        reference = torch.ops.aten.upsample_nearest1d_backward.grad_input(
+            ref_grad_output, (13,), input_size, grad_input=ref_grad_input
+        )
+
+    result = flag_gems.upsample_nearest1d_backward_grad_input(
+        grad_output, (13,), input_size, grad_input=grad_input
+    )
+
+    assert result is grad_input
+    if ref_grad_input is not None:
+        assert reference is ref_grad_input
+    utils.gems_assert_close(result, reference, dtype)

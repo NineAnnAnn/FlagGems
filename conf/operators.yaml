@@ -14332,6 +14332,19 @@ ops:
   - NeuralNetwork
   stages:
   - alpha: '5.4'
+- id: upsample_nearest1d_backward_grad_input
+  description: A variant of `upsample_nearest1d_backward()` that writes the result
+    into the `grad_input` tensor.
+  for:
+  - upsample_nearest1d_backward.grad_input
+  labels:
+  - aten
+  - KernelGen
+  - Reduction
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.4'
 - id: upsample_nearest2d
   description: 'Upsamples the `input`, using nearest neighbours'' pixel values. The
     input has to be 4 dimensional.
