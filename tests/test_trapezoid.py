@@ -254,3 +254,146 @@ def test_trapezoid_x_zero_size(dtype):
     res_out = flag_gems.trapezoid_x(res_inp, res_x)
 
     utils.gems_assert_close(res_out, ref_out, dtype)
+
+
+@pytest.mark.trapezoid_x
+def test_trapezoid_x_mixed_dtype():
+    # int y + float x promotes to the float x dtype (ATen result_type).
+    y = torch.randint(-100, 100, (4, 5), dtype=torch.int32, device=flag_gems.device)
+    x = torch.sort(
+        torch.randn(4, 5, dtype=torch.float16, device=flag_gems.device), dim=-1
+    )[0]
+    ref_y = utils.to_reference(y)
+    ref_x = utils.to_reference(x, upcast=True)
+
+    ref_out = torch.trapezoid(ref_y, ref_x)
+    res_out = flag_gems.trapezoid_x(y, x)
+
+    utils.gems_assert_close(res_out, ref_out, torch.float16, reduce_dim=5)
+
+    # float16 y + float32 x promotes to float32.
+    y = torch.randn(4, 5, dtype=torch.float16, device=flag_gems.device)
+    x = torch.sort(
+        torch.randn(4, 5, dtype=torch.float32, device=flag_gems.device), dim=-1
+    )[0]
+    ref_y = utils.to_reference(y, upcast=True)
+    ref_x = utils.to_reference(x, upcast=True)
+
+    ref_out = torch.trapezoid(ref_y, ref_x)
+    res_out = flag_gems.trapezoid_x(y, x)
+
+    utils.gems_assert_close(res_out, ref_out, torch.float32, reduce_dim=5)
+
+    # int y + int x promotes to float32.
+    y = torch.randint(-100, 100, (4, 5), dtype=torch.int32, device=flag_gems.device)
+    x = torch.sort(
+        torch.randint(-100, 100, (4, 5), dtype=torch.int32, device=flag_gems.device),
+        dim=-1,
+    )[0]
+    ref_y = utils.to_reference(y)
+    ref_x = utils.to_reference(x)
+
+    ref_out = torch.trapezoid(ref_y, ref_x)
+    res_out = flag_gems.trapezoid_x(y, x)
+
+    utils.gems_assert_close(res_out, ref_out, torch.float32, reduce_dim=5)
+
+
+@pytest.mark.trapezoid
+def test_trapezoid_complex():
+    # The Triton kernel cannot handle complex; it must raise so the dispatcher
+    # falls back to ATen's complex-capable implementation.
+    y = torch.randn(2, 3, dtype=torch.complex64, device=flag_gems.device)
+    with pytest.raises(NotImplementedError):
+        flag_gems.trapezoid(y)
+
+
+@pytest.mark.trapezoid_x
+def test_trapezoid_x_complex():
+    y = torch.randn(2, 3, dtype=torch.complex64, device=flag_gems.device)
+    x = torch.randn(2, 3, dtype=torch.complex64, device=flag_gems.device)
+    with pytest.raises(NotImplementedError):
+        flag_gems.trapezoid_x(y, x)
+
+
+@pytest.mark.trapezoid
+def test_trapezoid_invalid_dim():
+    y = torch.randn(2, 3, device=flag_gems.device)
+    with pytest.raises(IndexError, match="Dimension out of range"):
+        flag_gems.trapezoid(y, dim=5)
+    with pytest.raises(IndexError, match="Dimension out of range"):
+        flag_gems.trapezoid(y, dim=-3)
+
+
+@pytest.mark.trapezoid_x
+@pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
+def test_trapezoid_x_y_broadcasting(dtype):
+    # y broadcasts to x (y's leading dim is 1, x's is larger).
+    y_shape = (1, 5, 6)
+    x_shape = (4, 5, 6)
+    res_y = torch.randn(y_shape, dtype=dtype, device=flag_gems.device)
+    res_x = torch.sort(
+        torch.randn(x_shape, dtype=dtype, device=flag_gems.device), dim=-1
+    )[0]
+    ref_y = utils.to_reference(res_y, upcast=True)
+    ref_x = utils.to_reference(res_x, upcast=True)
+
+    ref_out = torch.trapezoid(ref_y, ref_x)
+    res_out = flag_gems.trapezoid_x(res_y, res_x)
+
+    utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=y_shape[-1])
+
+
+@pytest.mark.trapezoid_x
+@pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
+def test_trapezoid_x_pair_broadcasting(dtype):
+    # y has 2 sample points (pair length 1) and x has 5 (pair length 4); ATen
+    # broadcasts the pair axes to length 4. Exercise both directions.
+    y = torch.randn(2, 2, dtype=dtype, device=flag_gems.device)
+    x = torch.sort(torch.randn(2, 5, dtype=dtype, device=flag_gems.device), dim=-1)[0]
+    ref_y = utils.to_reference(y, upcast=True)
+    ref_x = utils.to_reference(x, upcast=True)
+
+    ref_out = torch.trapezoid(ref_y, ref_x, dim=1)
+    res_out = flag_gems.trapezoid_x(y, x, dim=1)
+
+    utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=4)
+
+    y = torch.randn(2, 5, dtype=dtype, device=flag_gems.device)
+    x = torch.sort(torch.randn(2, 2, dtype=dtype, device=flag_gems.device), dim=-1)[0]
+    ref_y = utils.to_reference(y, upcast=True)
+    ref_x = utils.to_reference(x, upcast=True)
+
+    ref_out = torch.trapezoid(ref_y, ref_x, dim=1)
+    res_out = flag_gems.trapezoid_x(y, x, dim=1)
+
+    utils.gems_assert_close(res_out, ref_out, dtype, reduce_dim=4)
+
+
+@pytest.mark.trapezoid
+def test_trapezoid_dx_backward():
+    # Reference runs on CPU so it always dispatches to ATen (never FlagGems).
+    y = torch.randn(
+        (3, 5), dtype=torch.float64, device=flag_gems.device, requires_grad=True
+    )
+    ref_y = y.detach().cpu().requires_grad_()
+    torch.trapezoid(ref_y, dx=2.0).sum().backward()
+    flag_gems.trapezoid(y, dx=2.0).sum().backward()
+
+    utils.gems_assert_close(y.grad, ref_y.grad.to(flag_gems.device), torch.float64)
+
+
+@pytest.mark.trapezoid_x
+def test_trapezoid_x_backward():
+    y = torch.randn(
+        (3, 5), dtype=torch.float64, device=flag_gems.device, requires_grad=True
+    )
+    x = torch.sort(torch.randn(5, dtype=torch.float64, device=flag_gems.device))[0]
+    x.requires_grad_(True)
+    ref_y = y.detach().cpu().requires_grad_()
+    ref_x = x.detach().cpu().requires_grad_()
+    torch.trapezoid(ref_y, ref_x).sum().backward()
+    flag_gems.trapezoid_x(y, x).sum().backward()
+
+    utils.gems_assert_close(y.grad, ref_y.grad.to(flag_gems.device), torch.float64)
+    utils.gems_assert_close(x.grad, ref_x.grad.to(flag_gems.device), torch.float64)

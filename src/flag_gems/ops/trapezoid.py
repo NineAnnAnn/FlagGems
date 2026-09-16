@@ -80,6 +80,10 @@ def trapezoid_x_kernel(
     BLOCK_N: tl.constexpr,
     COMPUTE_DTYPE: tl.constexpr,
 ):
+    # Fast path used when y and x share the same length N along the integration
+    # dim. sum_{i=1..N-1} 0.5*(x_i - x_{i-1})*(y_i + y_{i-1}) is rewritten as a
+    # single weighted pass sum_k y_k * 0.5*(x_{k+1} - x_{k-1}), where the neighbour
+    # indices are clamped at the endpoints. This reads each y element only once.
     pid = ext.program_id(0) * BLOCK_M + tl.arange(0, BLOCK_M)[:, None]
     row_mask = pid < M
     y_row = y_ptr + pid * N
@@ -88,9 +92,6 @@ def trapezoid_x_kernel(
     x_row = x_ptr + pid * x_m_stride
 
     acc = tl.zeros([BLOCK_M, BLOCK_N], dtype=COMPUTE_DTYPE)
-    # sum_{i=1..N-1} 0.5*(x_i - x_{i-1})*(y_i + y_{i-1}) rewritten as a single
-    # weighted pass sum_k y_k * 0.5*(x_{k+1} - x_{k-1}), where the neighbour
-    # indices are clamped at the endpoints. This reads each y element only once.
     for off in range(0, N, BLOCK_N):
         k = off + tl.arange(0, BLOCK_N)[None, :]
         col_mask = k < N
@@ -106,8 +107,111 @@ def trapezoid_x_kernel(
     tl.store(out_ptr + pid, out, mask=row_mask)
 
 
-def _out_dtype(y):
-    return y.dtype if y.is_floating_point() else torch.float32
+@libentry()
+@libtuner(
+    configs=runtime.get_tuned_config("naive_reduction"),
+    key=["M", "N"],
+)
+@triton.jit
+def trapezoid_x_pair_kernel(
+    lpr_ptr,
+    dx_ptr,
+    out_ptr,
+    M,
+    N,
+    BLOCK_M: tl.constexpr,
+    BLOCK_N: tl.constexpr,
+    COMPUTE_DTYPE: tl.constexpr,
+):
+    # Slow path for pair-space broadcasting (y and x differ in length along the
+    # integration dim). lpr (y_left + y_right) and dx (x_right - x_left) are
+    # already reduced by one and broadcast to the common pair shape, then flattened
+    # to (M, N). Compute the inner product sum_k lpr_k * dx_k and scale by 0.5.
+    pid = ext.program_id(0) * BLOCK_M + tl.arange(0, BLOCK_M)[:, None]
+    row_mask = pid < M
+    lpr_row = lpr_ptr + pid * N
+    dx_row = dx_ptr + pid * N
+
+    acc = tl.zeros([BLOCK_M, BLOCK_N], dtype=COMPUTE_DTYPE)
+    for off in range(0, N, BLOCK_N):
+        k = off + tl.arange(0, BLOCK_N)[None, :]
+        col_mask = k < N
+        mask = row_mask & col_mask
+        lpr_k = tl.load(lpr_row + k, mask=mask, other=0.0).to(COMPUTE_DTYPE)
+        dx_k = tl.load(dx_row + k, mask=mask, other=0.0).to(COMPUTE_DTYPE)
+        acc += lpr_k * dx_k
+
+    out = tl.sum(acc, axis=1)[:, None] * 0.5
+    tl.store(out_ptr + pid, out, mask=row_mask)
+
+
+def _normalize_dim(ndim, dim):
+    # Mirror ATen's dim validation: a 0-d tensor has no dims, and out-of-range dims
+    # raise IndexError with the exact same message wording.
+    if ndim == 0:
+        raise IndexError(f"Dimension specified as {dim} but tensor has no dimensions")
+    if dim < -ndim or dim >= ndim:
+        raise IndexError(
+            f"Dimension out of range (expected to be in range of [{-ndim}, {ndim - 1}], "
+            f"but got {dim})"
+        )
+    return dim if dim >= 0 else dim + ndim
+
+
+def _check_bool(y, x=None):
+    for name, t in (("y", y), ("x", x)):
+        if t is not None and t.dtype == torch.bool:
+            raise RuntimeError(
+                "trapezoid: received a bool input for `x` or `y`, but bool is not supported"
+            )
+
+
+def _check_complex(y, x=None):
+    # The Triton kernel cannot handle complex numbers. Raising NotImplementedError
+    # lets the dispatcher fall back to ATen's CompositeImplicitAutograd implementation,
+    # which supports complex in the forward pass.
+    for name, t in (("y", y), ("x", x)):
+        if t is not None and t.is_complex():
+            raise NotImplementedError(
+                f"trapezoid: complex input for `{name}` is not supported by the Triton kernel"
+            )
+
+
+def _result_dtype(y, x=None):
+    # ATen promotes y and x via result_type, but a pure-integer result is computed
+    # in float32 (matching ATen's do_trapezoid, which returns float32 for int inputs).
+    if x is None:
+        dt = y.dtype
+    else:
+        dt = torch.result_type(y, x)
+    if not dt.is_floating_point:
+        dt = torch.float32
+    return dt
+
+
+def _compute_dtype(dtype):
+    return tl.float64 if dtype == torch.float64 else tl.float32
+
+
+def _zeros_shape(shape, dim):
+    return shape[:dim] + shape[dim + 1 :]
+
+
+def _view_x(x, y, dim):
+    # Align x to y's dimensionality following ATen:
+    #   - a 1-D x is placed along `dim` (all other dims are 1);
+    #   - otherwise x is right-aligned by padding leading 1s to match y.dim().
+    if x.dim() == 1:
+        if x.shape[0] != y.shape[dim]:
+            raise RuntimeError(
+                "trapezoid: There must be one `x` value for each sample point"
+            )
+        new_sizes = [1] * y.dim()
+        new_sizes[dim] = x.shape[0]
+        return x.view(new_sizes)
+    if x.dim() < y.dim():
+        return x.view([1] * (y.dim() - x.dim()) + list(x.shape))
+    return x
 
 
 def _prepare(y, dim):
@@ -121,10 +225,41 @@ def _prepare(y, dim):
     return y2, M, N, out_shape
 
 
-def trapezoid(y, dx=1, dim=-1):
-    logger.debug("GEMS TRAPEZOID")
-    dim = dim % y.ndim if y.ndim > 0 else 0
-    out_dtype = _out_dtype(y)
+def _unbroadcast(grad, target_shape):
+    # Sum a broadcast gradient back into the (possibly smaller) target shape.
+    while grad.dim() > len(target_shape):
+        grad = grad.sum(dim=0)
+    for i, s in enumerate(target_shape):
+        if s == 1 and grad.shape[i] != 1:
+            grad = grad.sum(dim=i, keepdim=True)
+    return grad.reshape(target_shape)
+
+
+def _accumulate_plus(grad_diff, dim):
+    # Given grad wrt (y[k] + y[k+1]) over the pair axis, recover grad wrt y[k] via
+    # grad_y[k] = grad_diff[k] + grad_diff[k-1] (endpoints clamped).
+    pad = torch.zeros_like(grad_diff.narrow(dim, 0, 1))
+    return torch.cat([pad, grad_diff], dim=dim) + torch.cat([grad_diff, pad], dim=dim)
+
+
+def _accumulate_minus(grad_diff, dim):
+    # Given grad wrt (x[k+1] - x[k]) over the pair axis, recover grad wrt x[k] via
+    # grad_x[k] = grad_diff[k-1] - grad_diff[k] (endpoints clamped).
+    pad = torch.zeros_like(grad_diff.narrow(dim, 0, 1))
+    return torch.cat([pad, grad_diff], dim=dim) - torch.cat([grad_diff, pad], dim=dim)
+
+
+def _trapezoid_dx_impl(y, dx_val, dim):
+    dim = _normalize_dim(y.dim(), dim)
+
+    if y.shape[dim] == 0:
+        out_dtype = _result_dtype(y)
+        return torch.zeros(_zeros_shape(y.shape, dim), dtype=out_dtype, device=y.device)
+
+    _check_bool(y)
+    _check_complex(y)
+    out_dtype = _result_dtype(y)
+
     y2, M, N, out_shape = _prepare(y, dim)
 
     if N <= 1:
@@ -133,68 +268,185 @@ def trapezoid(y, dx=1, dim=-1):
 
     out = torch.empty((M,), dtype=out_dtype, device=y.device)
     if M > 0:
-        # Determine compute dtype: use native dtype for FP64, otherwise FP32 is fine
-        compute_dtype = tl.float64 if out_dtype == torch.float64 else tl.float32
-        # Extract scalar value from dx (handle both tensor and numeric types)
-        dx_val = dx.item() if isinstance(dx, torch.Tensor) else float(dx)
         grid = lambda meta: (triton.cdiv(M, meta["BLOCK_M"]),)
         with torch_device_fn.device(y.device):
             trapezoid_dx_kernel[grid](
-                y2, out, dx_val, M, N, COMPUTE_DTYPE=compute_dtype
+                y2, out, dx_val, M, N, COMPUTE_DTYPE=_compute_dtype(out_dtype)
             )
     return out.reshape(out_shape)
+
+
+def _trapezoid_x_impl(y, x, dim):
+    dim = _normalize_dim(y.dim(), dim)
+
+    if y.shape[dim] == 0:
+        out_dtype = _result_dtype(y, x)
+        return torch.zeros(_zeros_shape(y.shape, dim), dtype=out_dtype, device=y.device)
+
+    _check_bool(y, x)
+    _check_complex(y, x)
+    out_dtype = _result_dtype(y, x)
+
+    x_viewed = _view_x(x, y, dim)
+    N = y.shape[dim]
+    Nx = x_viewed.shape[dim]
+
+    if N == Nx:
+        # Fast path: y and x share the integration length, so the weighted-sum
+        # kernel applies directly once the non-dim axes are broadcast together.
+        full_shape = torch.broadcast_shapes(y.shape, x_viewed.shape)
+        out_shape = full_shape[:dim] + full_shape[dim + 1 :]
+
+        if N <= 1:
+            # A single sample point spans no interval, so the integral is zero.
+            return torch.zeros(out_shape, dtype=out_dtype, device=y.device)
+
+        y_b = y.broadcast_to(full_shape)
+        y2 = y_b.movedim(dim, -1).contiguous().reshape(-1, N)
+        M = y2.shape[0]
+
+        if M == 0:
+            return torch.zeros(out_shape, dtype=out_dtype, device=y.device)
+
+        if x.dim() == 1:
+            # 1-D spacing shared across every row.
+            x2 = x.contiguous()
+            x_m_stride = 0
+        else:
+            x_b = x_viewed.broadcast_to(full_shape)
+            x2 = x_b.movedim(dim, -1).contiguous().reshape(-1, N)
+            x_m_stride = N
+
+        out = torch.empty((M,), dtype=out_dtype, device=y.device)
+        grid = lambda meta: (triton.cdiv(M, meta["BLOCK_M"]),)
+        with torch_device_fn.device(y.device):
+            trapezoid_x_kernel[grid](
+                y2, x2, out, M, N, x_m_stride, COMPUTE_DTYPE=_compute_dtype(out_dtype)
+            )
+        return out.reshape(out_shape)
+
+    # Slow path: pair-space broadcasting (N != Nx). Reproduce ATen's
+    # ((y_left + y_right) * (x_right - x_left)).sum(dim) / 2 exactly, computing the
+    # intermediate differences in the compute dtype to preserve precision.
+    compute_dtype = torch.float64 if out_dtype == torch.float64 else torch.float32
+    left = y.narrow(dim, 0, N - 1)
+    right = y.narrow(dim, 1, N - 1)
+    lpr = left.to(compute_dtype) + right.to(compute_dtype)
+
+    x_left = x_viewed.narrow(dim, 0, Nx - 1)
+    x_right = x_viewed.narrow(dim, 1, Nx - 1)
+    dx = x_right.to(compute_dtype) - x_left.to(compute_dtype)
+
+    pair_shape = torch.broadcast_shapes(lpr.shape, dx.shape)
+    P = pair_shape[dim]
+    out_shape = pair_shape[:dim] + pair_shape[dim + 1 :]
+
+    if P == 0:
+        # An empty pair axis yields a zero integral.
+        return torch.zeros(out_shape, dtype=out_dtype, device=y.device)
+
+    lpr_b = lpr.broadcast_to(pair_shape)
+    dx_b = dx.broadcast_to(pair_shape)
+
+    lpr_2d = lpr_b.movedim(dim, -1).contiguous().reshape(-1, P)
+    dx_2d = dx_b.movedim(dim, -1).contiguous().reshape(-1, P)
+    M = lpr_2d.shape[0]
+
+    if M == 0:
+        return torch.zeros(out_shape, dtype=out_dtype, device=y.device)
+
+    out = torch.empty((M,), dtype=out_dtype, device=y.device)
+    grid = lambda meta: (triton.cdiv(M, meta["BLOCK_M"]),)
+    with torch_device_fn.device(y.device):
+        trapezoid_x_pair_kernel[grid](
+            lpr_2d, dx_2d, out, M, P, COMPUTE_DTYPE=_compute_dtype(out_dtype)
+        )
+    return out.reshape(out_shape)
+
+
+class _TrapezoidDX(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, y, dx, dim):
+        ctx.dx_val = dx.item() if isinstance(dx, torch.Tensor) else float(dx)
+        ctx.dim = _normalize_dim(y.dim(), dim)
+        ctx.save_for_backward(y)
+        return _trapezoid_dx_impl(y, ctx.dx_val, dim)
+
+    @staticmethod
+    def backward(ctx, grad_out):
+        (y,) = ctx.saved_tensors
+        dx_val = ctx.dx_val
+        dim = ctx.dim
+        N = y.shape[dim]
+        if N <= 1:
+            grad_y = torch.zeros_like(y)
+        else:
+            compute_dtype = torch.float64 if y.dtype == torch.float64 else torch.float32
+            weight = torch.ones(N, device=y.device, dtype=compute_dtype)
+            weight[0] = 0.5
+            weight[-1] = 0.5
+            grad_y = (grad_out.to(compute_dtype).unsqueeze(dim) * weight * dx_val).to(
+                y.dtype
+            )
+        return grad_y, None, None
+
+
+class _TrapezoidX(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, y, x, dim):
+        dim = _normalize_dim(y.dim(), dim)
+        ctx.dim = dim
+        ctx.x_shape = x.shape
+        ctx.save_for_backward(y, x)
+        return _trapezoid_x_impl(y, x, dim)
+
+    @staticmethod
+    def backward(ctx, grad_out):
+        y, x = ctx.saved_tensors
+        dim = ctx.dim
+        x_shape = ctx.x_shape
+
+        x_viewed = _view_x(x, y, dim)
+
+        N = y.shape[dim]
+        left = y.narrow(dim, 0, N - 1)
+        right = y.narrow(dim, 1, N - 1)
+        lpr = left + right
+
+        Nx = x_viewed.shape[dim]
+        x_left = x_viewed.narrow(dim, 0, Nx - 1)
+        x_right = x_viewed.narrow(dim, 1, Nx - 1)
+        dx = x_right - x_left
+
+        pair_shape = torch.broadcast_shapes(lpr.shape, dx.shape)
+        lpr_b = lpr.broadcast_to(pair_shape)
+        dx_b = dx.broadcast_to(pair_shape)
+
+        # out = (lpr * dx).sum(dim) / 2
+        grad_pair = grad_out.unsqueeze(dim) * 0.5
+        grad_lpr_b = grad_pair * dx_b
+        grad_dx_b = grad_pair * lpr_b
+
+        grad_lpr = _unbroadcast(grad_lpr_b, lpr.shape)
+        grad_dx = _unbroadcast(grad_dx_b, dx.shape)
+
+        grad_y = _accumulate_plus(grad_lpr, dim)
+        grad_x_viewed = _accumulate_minus(grad_dx, dim)
+        grad_x = grad_x_viewed.view(x_shape)
+
+        return grad_y, grad_x, None
+
+
+def trapezoid(y, dx=1, dim=-1):
+    logger.debug("GEMS TRAPEZOID")
+    if torch.is_grad_enabled() and y.requires_grad:
+        return _TrapezoidDX.apply(y, dx, dim)
+    dx_val = dx.item() if isinstance(dx, torch.Tensor) else float(dx)
+    return _trapezoid_dx_impl(y, dx_val, dim)
 
 
 def trapezoid_x(y, x, dim=-1):
     logger.debug("GEMS TRAPEZOID_X")
-    dim = dim % y.ndim if y.ndim > 0 else 0
-    out_dtype = _out_dtype(y)
-    y2, M, N, out_shape = _prepare(y, dim)
-
-    # Validate x length for 1-D x before any early return
-    if x.ndim == 1:
-        if x.shape[0] != N:
-            raise RuntimeError(
-                f"trapezoid: There must be one `x` value for each sample point "
-                f"(size mismatch: `x` has {x.shape[0]} elements, expected {N} "
-                f"for dimension {dim} in `y`)"
-            )
-        # Shared 1-D spacing broadcast across every row.
-        x2 = x.contiguous()
-        x_m_stride = 0
-    else:
-        # Multi-dimensional x: implement ATen-compatible broadcasting.
-        # PyTorch's trapezoid broadcasts x and y together, not just x to y.shape.
-        y_moved = y.movedim(dim, -1)
-        x_moved = x.movedim(dim, -1)
-
-        # Broadcast x and y shapes together
-        try:
-            broadcast_shape = torch.broadcast_shapes(y_moved.shape, x_moved.shape)
-        except RuntimeError as e:
-            raise RuntimeError(f"trapezoid: cannot broadcast y and x shapes: {e}")
-
-        # Ensure the reduction dimension matches
-        if broadcast_shape[-1] != N:
-            raise RuntimeError(
-                f"trapezoid: x and y must have the same size along dimension {dim}"
-            )
-
-        # Broadcast both tensors to the common shape
-        x2 = x_moved.broadcast_to(broadcast_shape).reshape(-1, N).contiguous()
-        x_m_stride = N
-
-    if N <= 1:
-        # A single point spans no interval, so the integral is zero.
-        return torch.zeros(out_shape, dtype=out_dtype, device=y.device)
-
-    out = torch.empty((M,), dtype=out_dtype, device=y.device)
-    if M > 0:
-        # Determine compute dtype: use native dtype for FP64, otherwise FP32 is fine
-        compute_dtype = tl.float64 if out_dtype == torch.float64 else tl.float32
-        grid = lambda meta: (triton.cdiv(M, meta["BLOCK_M"]),)
-        with torch_device_fn.device(y.device):
-            trapezoid_x_kernel[grid](
-                y2, x2, out, M, N, x_m_stride, COMPUTE_DTYPE=compute_dtype
-            )
-    return out.reshape(out_shape)
+    if torch.is_grad_enabled() and (y.requires_grad or x.requires_grad):
+        return _TrapezoidX.apply(y, x, dim)
+    return _trapezoid_x_impl(y, x, dim)
