@@ -14363,6 +14363,17 @@ ops:
   - NeuralNetwork
   stages:
   - alpha: '5.4'
+- id: upsample_nearest3d_backward_grad_input
+  description: An out variant of `upsample_nearest3d_backward()`.
+  for:
+  - upsample_nearest3d_backward.grad_input
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.4'
 - id: upsample_nearest_exact1d
   description: 'Increases the length of a 1D tensor using nearest-neighbor interpolation,
 
