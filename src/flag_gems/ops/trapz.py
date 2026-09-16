@@ -45,210 +45,156 @@ def trapezoid_kernel_dx(
     BLOCK_N: tl.constexpr,
 ):
     """Trapezoid integration with constant spacing dx."""
+    # Accumulate in float64 for float64 inputs, float32 otherwise.
+    acc_dtype = tl.float64 if y_ptr.type.element_ty == tl.float64 else tl.float32
     pid_m = tle.program_id(0)
 
     m_offsets = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
     mask_m = m_offsets < M
 
-    # Accumulator for each row
-    acc = tl.zeros((BLOCK_M,), dtype=tl.float32)
+    acc = tl.zeros((BLOCK_M,), dtype=acc_dtype)
 
-    # Process the reduction dimension in blocks
     for n_start in range(0, N - 1, BLOCK_N):
         n_offsets = n_start + tl.arange(0, BLOCK_N)
         mask_n = n_offsets < N - 1
 
-        # Load y[i] and y[i+1]
         y_offsets = m_offsets[:, None] * M_STRIDE_Y + n_offsets[None, :]
         mask = mask_m[:, None] & mask_n[None, :]
 
-        y_i = tl.load(y_ptr + y_offsets, mask=mask, other=0.0).to(tl.float32)
-        y_next = tl.load(y_ptr + y_offsets + 1, mask=mask, other=0.0).to(tl.float32)
+        y_i = tl.load(y_ptr + y_offsets, mask=mask, other=0.0).to(acc_dtype)
+        y_next = tl.load(y_ptr + y_offsets + 1, mask=mask, other=0.0).to(acc_dtype)
 
-        # Trapezoidal rule: dx/2 * (y[i] + y[i+1])
+        # Trapezoidal rule: (y[i] + y[i+1]) / 2
         trapezoid_sum = (y_i + y_next) * 0.5
 
-        # Sum across N dimension
         acc += tl.sum(trapezoid_sum, axis=1)
 
-    # Multiply by dx
     result = acc * dx
-
-    # Store result (keep in float32)
     out_offsets = m_offsets * M_STRIDE_OUT
     tl.store(out_ptr + out_offsets, result, mask=mask_m)
 
 
-@libentry()
-@libtuner(
-    configs=runtime.get_tuned_config("trapezoid_kernel"),
-    key=["M", "N"],
-)
-@triton.jit
-def trapezoid_kernel_x(
-    y_ptr,
-    x_ptr,
-    out_ptr,
-    M,
-    N,
-    M_STRIDE_Y,
-    M_STRIDE_X,
-    M_STRIDE_OUT,
-    BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
-):
-    """Trapezoid integration with variable spacing x."""
-    pid_m = tle.program_id(0)
+def _normalize_dim(dim, ndim):
+    if ndim == 0:
+        raise IndexError(f"Dimension specified as {dim} but tensor has no dimensions")
+    if not (-ndim <= dim < ndim):
+        raise IndexError(
+            f"Dimension out of range (expected to be in range of "
+            f"[{-ndim}, {ndim - 1}], but got {dim})"
+        )
+    return dim % ndim
 
-    m_offsets = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-    mask_m = m_offsets < M
 
-    # Accumulator for each row
-    acc = tl.zeros((BLOCK_M,), dtype=tl.float32)
+class TrapzOp(torch.autograd.Function):
+    """Custom autograd function for the trapezoidal rule.
 
-    # Process the reduction dimension in blocks
-    for n_start in range(0, N - 1, BLOCK_N):
-        n_offsets = n_start + tl.arange(0, BLOCK_N)
-        mask_n = n_offsets < N - 1
+    The forward pass runs a Triton kernel; the backward pass multiplies the
+    upstream gradient by the trapezoidal weights ``dx * [0.5, 1, ..., 1, 0.5]``
+    broadcast along the reduced dimension.
+    """
 
-        # Load y[i] and y[i+1]
-        y_offsets = m_offsets[:, None] * M_STRIDE_Y + n_offsets[None, :]
-        mask = mask_m[:, None] & mask_n[None, :]
+    @staticmethod
+    def forward(ctx, y, dx, dim):
+        logger.debug("GEMS TRAPEZOID_DX")
 
-        y_i = tl.load(y_ptr + y_offsets, mask=mask, other=0.0).to(tl.float32)
-        y_next = tl.load(y_ptr + y_offsets + 1, mask=mask, other=0.0).to(tl.float32)
+        dim = _normalize_dim(dim, y.ndim)
+        shape = y.shape
+        N = shape[dim]
+        out_shape = shape[:dim] + shape[dim + 1 :]
 
-        # Load x[i] and x[i+1]
-        x_offsets = m_offsets[:, None] * M_STRIDE_X + n_offsets[None, :]
-        x_i = tl.load(x_ptr + x_offsets, mask=mask, other=0.0).to(tl.float32)
-        x_next = tl.load(x_ptr + x_offsets + 1, mask=mask, other=0.0).to(tl.float32)
+        ctx.dx = dx
+        ctx.dim = dim
+        ctx.N = N
+        ctx.y_shape = shape
+        ctx.y_dtype = y.dtype
 
-        # Trapezoidal rule: (x[i+1] - x[i]) / 2 * (y[i] + y[i+1])
-        dx = x_next - x_i
-        trapezoid_sum = dx * (y_i + y_next) * 0.5
+        # Empty tensors or a degenerate reduction dimension (N <= 1) integrate
+        # to zero; the reduction dimension is always removed from the shape.
+        if y.numel() == 0 or N <= 1:
+            return torch.zeros(out_shape, dtype=y.dtype, device=y.device)
 
-        # Sum across N dimension
-        acc += tl.sum(trapezoid_sum, axis=1)
+        y_compressed = dim_compress(y, dim)
+        M = y_compressed.numel() // N
 
-    # Store result (keep in float32)
-    out_offsets = m_offsets * M_STRIDE_OUT
-    tl.store(out_ptr + out_offsets, acc, mask=mask_m)
+        # Accumulate in float64 for float64 inputs, float32 otherwise; the
+        # result is cast back to the input dtype before returning.
+        compute_dtype = torch.float64 if y.dtype == torch.float64 else torch.float32
+        out_compressed_shape = list(y_compressed.shape)
+        out_compressed_shape[-1] = 1
+        output = torch.empty(out_compressed_shape, dtype=compute_dtype, device=y.device)
+
+        grid = lambda meta: (triton.cdiv(M, meta["BLOCK_M"]),)  # noqa: E731
+        with torch_device_fn.device(y.device):
+            trapezoid_kernel_dx[grid](
+                y_compressed, output, M, N, dx, N, 1, BLOCK_M=32, BLOCK_N=128
+            )
+
+        result = output.reshape(out_shape)
+        if compute_dtype != y.dtype:
+            result = result.to(y.dtype)
+        return result
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        dx = ctx.dx
+        dim = ctx.dim
+        N = ctx.N
+        y_shape = ctx.y_shape
+        y_dtype = ctx.y_dtype
+
+        if N <= 1:
+            return (
+                torch.zeros(y_shape, dtype=y_dtype, device=grad_output.device),
+                None,
+                None,
+            )
+
+        acc_dtype = torch.float64 if y_dtype == torch.float64 else torch.float32
+        w = torch.ones(N, dtype=acc_dtype, device=grad_output.device)
+        w[0] = 0.5
+        w[-1] = 0.5
+        w_shape = [1] * len(y_shape)
+        w_shape[dim] = N
+        w = w.view(w_shape)
+
+        grad_y = grad_output.to(acc_dtype).unsqueeze(dim) * w * dx
+        return grad_y.to(y_dtype), None, None
 
 
 def trapz(y, dx=1.0, dim=-1):
-    """Compute trapezoid integration with constant spacing dx."""
-    logger.debug("GEMS TRAPEZOID_DX")
+    """Compute the trapezoidal rule along a dimension with constant spacing.
 
-    # Handle empty tensor
-    if y.numel() == 0:
-        shape = list(y.shape)
-        dim = dim % y.ndim if y.ndim > 0 else 0
-        if y.ndim > 0:
-            shape[dim] = 0
-        return torch.empty(shape, dtype=y.dtype, device=y.device)
+    Args:
+        y: Input tensor.
+        dx: Constant spacing between samples.
+        dim: Dimension along which to integrate.
 
-    shape = list(y.shape)
-    dim = dim % y.ndim
-    N = shape[dim]
-
-    # If dimension size is 0 or 1, return zeros with reduced dimension
-    if N <= 1:
-        out_shape = shape[:dim] + shape[dim + 1 :]
-        return torch.zeros(out_shape, dtype=y.dtype, device=y.device)
-
-    # Compress dimensions for efficient processing
-    y_compressed = dim_compress(y, dim)
-    M = y_compressed.numel() // N
-
-    # Prepare output shape
-    out_shape = list(y_compressed.shape)
-    out_shape[-1] = 1
-
-    # Use float32 for accumulation to avoid precision issues
-    compute_dtype = (
-        torch.float32 if y.dtype in [torch.float16, torch.bfloat16] else y.dtype
-    )
-    output = torch.empty(out_shape, dtype=compute_dtype, device=y.device)
-
-    # Launch kernel
-    grid = lambda meta: (triton.cdiv(M, meta["BLOCK_M"]),)
-    with torch_device_fn.device(y.device):
-        trapezoid_kernel_dx[grid](
-            y_compressed, output, M, N, float(dx), N, 1, BLOCK_M=32, BLOCK_N=128
+    Returns:
+        The integral of ``y`` along ``dim``, with the reduced dimension removed.
+    """
+    if y.dtype == torch.bool:
+        raise RuntimeError(
+            "trapezoid: received a bool input for `y`, but bool is not supported"
         )
 
-    # Reshape back to original dimensions and convert to original dtype
-    out_shape_final = shape[:dim] + shape[dim + 1 :]
-    result = output.reshape(out_shape_final)
-    if compute_dtype != y.dtype:
-        result = result.to(y.dtype)
-    return result
+    # Triton kernels are real-valued only; defer complex inputs to PyTorch's
+    # native implementation (on CPU, since the CUDA dispatch key is overridden
+    # by FlagGems and a direct torch.trapezoid call would re-enter this op).
+    # complex32 lacks native reduction kernels on CPU, so upcast it first.
+    if y.is_complex():
+        comp_dtype = (
+            torch.complex128 if y.dtype == torch.complex128 else torch.complex64
+        )
+        out = torch.trapezoid(y.cpu().to(comp_dtype), dx=dx, dim=dim)
+        return out.to(y.dtype).to(y.device)
 
+    # Integer inputs are promoted to float32, matching PyTorch.
+    if not y.is_floating_point():
+        y = y.to(torch.float32)
 
-def trapezoid_x(y, x, dim=-1):
-    """Compute trapezoid integration with variable spacing x."""
-    logger.debug("GEMS TRAPEZOID_X")
-
-    # Handle empty tensor
-    if y.numel() == 0:
-        shape = list(y.shape)
-        dim = dim % y.ndim if y.ndim > 0 else 0
-        if y.ndim > 0:
-            shape[dim] = 0
-        return torch.empty(shape, dtype=y.dtype, device=y.device)
-
-    shape = list(y.shape)
-    dim = dim % y.ndim
-    N = shape[dim]
-
-    # If dimension size is 0 or 1, return zeros with reduced dimension
-    if N <= 1:
-        out_shape = shape[:dim] + shape[dim + 1 :]
-        return torch.zeros(out_shape, dtype=y.dtype, device=y.device)
-
-    # Compress dimensions for efficient processing
-    y_compressed = dim_compress(y, dim)
-    M = y_compressed.numel() // N
-
-    # Handle x tensor - check if it's 1D or same shape as y
-    if x.ndim == 1 and x.numel() == N:
-        # x is 1D with size N, we need to broadcast it
-        x_stride_m = 0
-        x_compressed = x.contiguous()
+    if isinstance(dx, torch.Tensor):
+        dx = dx.item()
     else:
-        # x has same shape as y
-        x_compressed = dim_compress(x, dim)
-        x_stride_m = N
+        dx = float(dx)
 
-    # Prepare output shape
-    out_shape = list(y_compressed.shape)
-    out_shape[-1] = 1
-
-    # Use float32 for accumulation to avoid precision issues
-    compute_dtype = (
-        torch.float32 if y.dtype in [torch.float16, torch.bfloat16] else y.dtype
-    )
-    output = torch.empty(out_shape, dtype=compute_dtype, device=y.device)
-
-    # Launch kernel
-    grid = lambda meta: (triton.cdiv(M, meta["BLOCK_M"]),)
-    with torch_device_fn.device(y.device):
-        trapezoid_kernel_x[grid](
-            y_compressed,
-            x_compressed,
-            output,
-            M,
-            N,
-            N,
-            x_stride_m,
-            1,
-            BLOCK_M=32,
-            BLOCK_N=128,
-        )
-
-    # Reshape back to original dimensions and convert to original dtype
-    out_shape_final = shape[:dim] + shape[dim + 1 :]
-    result = output.reshape(out_shape_final)
-    if compute_dtype != y.dtype:
-        result = result.to(y.dtype)
-    return result
+    return TrapzOp.apply(y, dx, dim)

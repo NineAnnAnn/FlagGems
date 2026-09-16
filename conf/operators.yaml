@@ -13906,7 +13906,7 @@ ops:
   kind:
   - Math
   stages:
-  - alpha: '5.1'
+  - alpha: '5.4'
 - id: tril
   description: 'Returns the lower triangular part of an input matrix (or a batch of
     matrices) and
