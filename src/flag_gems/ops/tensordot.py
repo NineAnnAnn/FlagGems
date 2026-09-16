@@ -14,6 +14,7 @@
 
 import logging
 import math
+import warnings
 
 import torch
 import triton
@@ -149,10 +150,49 @@ def _normalize_dims(dims, ndim):
     for d in dims:
         if d < -ndim or d >= ndim:
             raise IndexError(
-                f"Dimension out of range (expected to be in range of [{-ndim}, {ndim-1}], but got {d})"
+                f"Dimension out of range (expected to be in range of [{-ndim}, {ndim - 1}], but got {d})"
             )
         normalized.append(d if d >= 0 else d + ndim)
     return normalized
+
+
+def _invert_permutation(perm):
+    # Invert a permutation so a permuted tensor can be mapped back to its
+    # original axis order. perm[i] is the source axis for destination axis i.
+    inv = [0] * len(perm)
+    for i, p in enumerate(perm):
+        inv[p] = i
+    return inv
+
+
+def _copy_tensordot_out(result: torch.Tensor, out: torch.Tensor) -> torch.Tensor:
+    """Validate, resize, and copy a computed tensordot result into an out tensor."""
+    if out.device != result.device:
+        raise RuntimeError(
+            "tensordot: Expected the output tensor to be on the same device as "
+            f"the result ({result.device}), but got {out.device}"
+        )
+    if out.dtype != result.dtype:
+        raise RuntimeError(
+            f"tensordot: Expected the output tensor to have dtype {result.dtype}, "
+            f"but got {out.dtype}"
+        )
+    if tuple(out.shape) != tuple(result.shape):
+        if out.numel() != 0:
+            warnings.warn(
+                "An output with one or more elements was resized since it had "
+                f"shape {list(out.shape)}, which does not match the required "
+                f"output shape {list(result.shape)}. This behavior is deprecated, "
+                "and in a future PyTorch release outputs will not be resized "
+                "unless they have zero elements. You can explicitly reuse an out "
+                "tensor t by resizing it, inplace, to zero elements with "
+                "t.resize_(0).",
+                UserWarning,
+                stacklevel=3,
+            )
+        out.resize_(result.shape)
+    out.copy_(result)
+    return out
 
 
 def _tensordot_impl(self, other, dims_self, dims_other, out=None):
@@ -216,34 +256,86 @@ def _tensordot_impl(self, other, dims_self, dims_other, out=None):
     result_shape = free_self_sizes + free_other_sizes
 
     if out is not None:
-        # Validate and resize out tensor without reshaping it
-        expected_size = M * N
-        if out.numel() != expected_size:
-            raise RuntimeError(
-                f"tensordot: output tensor has incorrect size. "
-                f"Expected {expected_size} elements, but got {out.numel()}"
-            )
-
-        c_dtype = get_higher_dtype(a2d.dtype, b2d.dtype)
-        if out.dtype != c_dtype:
-            raise RuntimeError(
-                f"tensordot: output tensor has incorrect dtype. "
-                f"Expected {c_dtype}, but got {out.dtype}"
-            )
-
-        # Compute result and copy to out without creating temporary via reshape
-        res = _matmul_2d(a2d, b2d)
-        out_view = out.view(M, N)
-        out_view.copy_(res)
-        return out
+        # Compute result and copy it into out without reshaping out itself, so a
+        # non-contiguous out never creates a temporary tensor. resize_ + copy_
+        # matches the aten out= contract (resize when the shape differs, raise on
+        # dtype/device mismatch).
+        res = _matmul_2d(a2d, b2d).reshape(result_shape)
+        return _copy_tensordot_out(res, out)
 
     res = _matmul_2d(a2d, b2d)
     return res.reshape(result_shape)
 
 
+class TensordotFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, self, other, dims_self, dims_other):
+        logger.debug("GEMS TENSORDOT FORWARD")
+
+        dims_self = _normalize_dims(list(dims_self), self.ndim)
+        dims_other = _normalize_dims(list(dims_other), other.ndim)
+        assert len(dims_self) == len(
+            dims_other
+        ), "tensordot: number of contracted dims must match"
+        for ds, do in zip(dims_self, dims_other):
+            assert (
+                self.shape[ds] == other.shape[do]
+            ), "tensordot: contracted dimensions must have matching sizes"
+
+        free_self = [d for d in range(self.ndim) if d not in dims_self]
+        free_other = [d for d in range(other.ndim) if d not in dims_other]
+
+        ctx.free_self = free_self
+        ctx.free_other = free_other
+        ctx.dims_self = dims_self
+        ctx.dims_other = dims_other
+        ctx.save_for_backward(self, other)
+
+        return _tensordot_impl(self, other, dims_self, dims_other)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        logger.debug("GEMS TENSORDOT BACKWARD")
+
+        self, other = ctx.saved_tensors
+        free_self = ctx.free_self
+        free_other = ctx.free_other
+        dims_self = ctx.dims_self
+        dims_other = ctx.dims_other
+
+        grad_self = None
+        grad_other = None
+
+        free_self_sizes = [self.shape[d] for d in free_self]
+        free_other_sizes = [other.shape[d] for d in free_other]
+        M = math.prod(free_self_sizes) if free_self_sizes else 1
+        N = math.prod(free_other_sizes) if free_other_sizes else 1
+        K = math.prod([self.shape[d] for d in dims_self]) if dims_self else 1
+
+        grad_2d = grad_output.reshape(M, N)
+
+        if ctx.needs_input_grad[0]:
+            b2d = other.permute(dims_other + free_other).contiguous().reshape(K, N)
+            grad_a2d = _matmul_2d(grad_2d, b2d.transpose(0, 1))
+            grad_self = grad_a2d.reshape(self.permute(free_self + dims_self).shape)
+            grad_self = grad_self.permute(
+                _invert_permutation(free_self + dims_self)
+            ).contiguous()
+
+        if ctx.needs_input_grad[1]:
+            a2d = self.permute(free_self + dims_self).contiguous().reshape(M, K)
+            grad_b2d = _matmul_2d(a2d.transpose(0, 1), grad_2d)
+            grad_other = grad_b2d.reshape(other.permute(dims_other + free_other).shape)
+            grad_other = grad_other.permute(
+                _invert_permutation(dims_other + free_other)
+            ).contiguous()
+
+        return grad_self, grad_other, None, None
+
+
 def tensordot(self, other, dims_self, dims_other):
     logger.debug("GEMS TENSORDOT")
-    return _tensordot_impl(self, other, dims_self, dims_other)
+    return TensordotFunction.apply(self, other, dims_self, dims_other)
 
 
 def tensordot_out(self, other, dims_self, dims_other, *, out):

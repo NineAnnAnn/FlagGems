@@ -48,6 +48,18 @@ def _reduce_dim(shape_a, dims_a):
     return max(k, 1)
 
 
+def _free_size_prod(shape, dims):
+    # Product of the non-contracted (free) dimension sizes; used to size the
+    # gradient tolerance since each backward matmul reduces over these dims.
+    ndim = len(shape)
+    contracted = [d % ndim for d in dims]
+    free = [d for d in range(ndim) if d not in contracted]
+    p = 1
+    for d in free:
+        p *= shape[d]
+    return max(p, 1)
+
+
 @pytest.mark.tensordot
 @pytest.mark.parametrize("shape_a, shape_b, dims_a, dims_b", TENSORDOT_CASES)
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
@@ -166,14 +178,22 @@ def test_tensordot_out_contract(dtype):
     assert result is out_view
     utils.gems_assert_close(out_view, ref_out, dtype, reduce_dim=4)
 
-    # Test with wrong size - should raise error
+    # Test with wrong size - should resize (with deprecation warning) to match ATen
     out_wrong = torch.empty(2, 5, dtype=dtype, device=flag_gems.device)
-    with pytest.raises(RuntimeError, match="incorrect size"):
-        flag_gems.tensordot_out(a, b, [1], [0], out=out_wrong)
+    with pytest.warns(UserWarning):
+        result = flag_gems.tensordot_out(a, b, [1], [0], out=out_wrong)
+    assert result is out_wrong
+    assert tuple(out_wrong.shape) == (3, 5)
+    utils.gems_assert_close(out_wrong, ref_out, dtype, reduce_dim=4)
 
     # Test with wrong dtype - should raise error
-    out_wrong_dtype = torch.empty(3, 5, dtype=torch.float64, device=flag_gems.device)
-    with pytest.raises(RuntimeError, match="incorrect dtype"):
+    wrong_dtype = (
+        torch.float64
+        if utils.fp64_is_supported
+        else (torch.float16 if dtype != torch.float16 else torch.float32)
+    )
+    out_wrong_dtype = torch.empty(3, 5, dtype=wrong_dtype, device=flag_gems.device)
+    with pytest.raises(RuntimeError, match="dtype"):
         flag_gems.tensordot_out(a, b, [1], [0], out=out_wrong_dtype)
 
 
@@ -194,3 +214,47 @@ def test_tensordot_unsupported_dtypes():
 
         with pytest.raises((RuntimeError, NotImplementedError)):
             flag_gems.tensordot(a_complex, b_complex, [1], [0])
+
+    # FP64 should be rejected when the device does not support it
+    if not utils.fp64_is_supported:
+        a_f64 = torch.randn(3, 4, device=flag_gems.device, dtype=torch.float64)
+        b_f64 = torch.randn(4, 5, device=flag_gems.device, dtype=torch.float64)
+
+        with pytest.raises(RuntimeError, match="unsupported dtype"):
+            flag_gems.tensordot(a_f64, b_f64, [1], [0])
+
+
+# Non-trivial contraction cases for gradient correctness (exclude zero-sized
+# and outer-product cases, which are exercised by the forward test).
+GRAD_CASES = [
+    ((3, 4, 5), (4, 5, 6), [1, 2], [0, 1]),
+    ((16, 32), (32, 24), [1], [0]),
+    ((3, 5, 4, 6), (6, 4, 5, 3), [2, 1, 3], [1, 2, 0]),
+    ((8, 7, 9), (9, 7, 5), [-1, 1], [0, 1]),
+]
+
+
+@pytest.mark.tensordot
+@pytest.mark.parametrize("shape_a, shape_b, dims_a, dims_b", GRAD_CASES)
+@pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
+def test_tensordot_backward(shape_a, shape_b, dims_a, dims_b, dtype):
+    a = torch.randn(shape_a, dtype=dtype, device=flag_gems.device, requires_grad=True)
+    b = torch.randn(shape_b, dtype=dtype, device=flag_gems.device, requires_grad=True)
+    ref_a = utils.to_reference(a, upcast=True)
+    ref_b = utils.to_reference(b, upcast=True)
+
+    ref_out = torch.tensordot(ref_a, ref_b, dims=(dims_a, dims_b))
+    res_out = flag_gems.tensordot(a, b, dims_a, dims_b)
+
+    out_grad = torch.randn_like(res_out)
+    ref_grad = utils.to_reference(out_grad, upcast=True)
+
+    ref_grad_a, ref_grad_b = torch.autograd.grad(ref_out, (ref_a, ref_b), ref_grad)
+    res_grad_a, res_grad_b = torch.autograd.grad(res_out, (a, b), out_grad)
+
+    utils.gems_assert_close(
+        res_grad_a, ref_grad_a, dtype, reduce_dim=_free_size_prod(shape_b, dims_b)
+    )
+    utils.gems_assert_close(
+        res_grad_b, ref_grad_b, dtype, reduce_dim=_free_size_prod(shape_a, dims_a)
+    )
