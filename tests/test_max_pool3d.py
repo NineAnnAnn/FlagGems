@@ -2,7 +2,6 @@ import pytest
 import torch
 
 import flag_gems
-from flag_gems import max_pool3d
 
 from . import accuracy_utils as utils
 
@@ -49,7 +48,7 @@ def test_max_pool3d(shape, kernel_size, stride, padding, dilation, ceil_mode, dt
         ceil_mode=ceil_mode,
     )
 
-    res_out = max_pool3d(
+    res_out = flag_gems.max_pool3d(
         inp,
         kernel_size=kernel_size,
         stride=stride,

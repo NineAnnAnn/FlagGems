@@ -8428,7 +8428,7 @@ ops:
   kind:
   - NeuralNetwork
   stages:
-  - beta: '5.3'
+  - alpha: '5.4'
 - id: max_pool3d_backward
   description: The backward version of `max_pool2d_with_indices()`.
   for:
