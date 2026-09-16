@@ -19,6 +19,8 @@ import torch
 import triton
 import triton.language as tl
 
+from flag_gems.ops.index_select import index_select
+from flag_gems.ops.nonzero import nonzero
 from flag_gems.runtime import torch_device_fn
 from flag_gems.utils import libentry
 
@@ -27,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 @libentry()
 @triton.jit
-def _spdiags_kernel(
+def spdiags_kernel(
     diagonals_ptr,
     offsets_ptr,
     indices_ptr,
@@ -48,6 +50,11 @@ def _spdiags_kernel(
     that fall outside the matrix) get their row index tagged with the sentinel
     ``-1`` so the host side can compact the results with a single ``nonzero``
     instead of a per-diagonal Python loop.
+
+    Coordinates follow the native ``_spdiags`` layout contract: the ``j``-th
+    element of a diagonal lands at matrix position ``(j - offset, j)``. Only
+    positions whose row and column fall inside the matrix are valid; unlike the
+    previous implementation there is no row-major modulo wrapping.
     """
     pid = tl.program_id(0)
     diag_idx = pid // tl.cdiv(diag_len, BLOCK_SIZE)
@@ -56,123 +63,107 @@ def _spdiags_kernel(
     if diag_idx >= num_diags:
         return
 
-    # Load offset for this diagonal
-    offset = tl.load(offsets_ptr + diag_idx).to(tl.int32)
+    # Load the offset without narrowing to int32: valid offsets are int64.
+    offset = tl.load(offsets_ptr + diag_idx)
 
-    # Compute base position
-    base_pos = block_idx * BLOCK_SIZE
-    positions = base_pos + tl.arange(0, BLOCK_SIZE)
+    positions = (block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)).to(tl.int64)
     inbound = positions < diag_len
 
-    # PyTorch's _spdiags semantics:
-    # - For offset >= 0: skip first k elements, use diagonal[k:], place at (0,k), (1,k+1), ...
-    # - For offset < 0: use diagonal[0:], place at (|k|,0), (|k|+1,1), ..., limited by matrix bounds
-    #
-    # Diagonal value index:
-    # - offset >= 0: read from diagonal[k + position]
-    # - offset < 0: read from diagonal[position]
+    # Native coordinate mapping: diagonal value at position j maps to
+    # (row, col) = (j - offset, j). Filter out-of-bounds indices directly.
+    row_idx = positions - offset
+    col_idx = positions
 
-    # Index into the diagonal array
-    diag_val_idx = tl.where(offset >= 0, positions + offset, positions)
+    valid = inbound & (row_idx >= 0) & (row_idx < nrows) & (col_idx < ncols)
 
-    # Matrix row and column indices
-    raw_row_idx = tl.where(offset >= 0, positions, positions - offset)
-    raw_col_idx = tl.where(offset >= 0, positions + offset, positions)
-
-    # Apply row-major indexing adjustment for out-of-bounds column indices
-    # This matches PyTorch CPU's behavior: (r, c) where c >= ncols becomes (r + c//ncols, c%ncols)
-    col_overflow = raw_col_idx // ncols
-    row_idx = raw_row_idx + col_overflow
-    col_idx = raw_col_idx % ncols
-
-    # Check validity: diagonal value exists AND adjusted indices are in bounds
-    valid = (
-        inbound
-        & (diag_val_idx < diag_len)
-        & (row_idx >= 0)
-        & (row_idx < nrows)
-        & (col_idx >= 0)
-        & (col_idx < ncols)
-    )
-
-    # Fixed-stride output position within the scratch buffers
+    # Fixed-stride output position within the scratch buffers.
     out_idx = diag_idx * diag_len + positions
 
-    # Load diagonal values
+    # Load diagonal values.
     diag_base = diag_idx * diag_len
-    vals = tl.load(diagonals_ptr + diag_base + diag_val_idx, mask=valid, other=0.0)
+    vals = tl.load(diagonals_ptr + diag_base + positions, mask=valid, other=0.0)
 
     # Store into the shared (2, numel) index buffer: row = indices[0], col = indices[1].
     # Invalid entries carry a -1 row sentinel so they are dropped during compaction.
-    store_row = tl.where(valid, row_idx.to(tl.int64), -1)
+    store_row = tl.where(valid, row_idx, -1)
     tl.store(indices_ptr + out_idx, store_row, mask=inbound)
-    tl.store(indices_ptr + numel + out_idx, col_idx.to(tl.int64), mask=inbound)
+    tl.store(indices_ptr + numel + out_idx, col_idx, mask=inbound)
     tl.store(values_ptr + out_idx, vals, mask=inbound)
 
 
-def _spdiags(diagonals, offsets, shape, layout=None):
+def _to_layout(result_coo, layout):
+    if layout == torch.sparse_csr:
+        return result_coo.to_sparse_csr()
+    if layout == torch.sparse_csc:
+        return result_coo.to_sparse_csc()
+    return result_coo
+
+
+def spdiags(diagonals, offsets, shape, layout=None):
     """
     Create a sparse diagonal matrix from diagonals.
 
     Args:
-        diagonals: Tensor of shape (num_diags, diag_len) containing diagonal values
-        offsets: Tensor of shape (num_diags,) containing diagonal offsets
+        diagonals: Tensor of shape (num_diags, diag_len) containing diagonal values,
+            or a 1-D vector which is promoted to a single-row matrix.
+        offsets: Tensor of shape (num_diags,) containing diagonal offsets, or a
+            scalar which is promoted to a single-element vector.
         shape: List[int] of length 2, the output matrix shape
-        layout: Optional layout (only sparse_coo supported)
+        layout: Optional layout (sparse_coo, sparse_csr, or sparse_csc). Defaults
+            to sparse_coo.
 
     Returns:
-        Sparse COO tensor
+        Sparse tensor in the requested layout.
     """
-    logger.debug("GEMS _SPDIAGS")
+    logger.debug("GEMS SPDIAGS")
 
-    if layout is not None and layout != torch.sparse_coo:
-        raise RuntimeError(
-            f"_spdiags only supports sparse_coo layout, but got {layout}"
-        )
+    # Promote 1-D diagonals and scalar offsets to the native 2-D/1-D forms.
+    diagonals_2d = diagonals.unsqueeze(0) if diagonals.dim() == 1 else diagonals
+    offsets_1d = offsets.unsqueeze(0) if offsets.dim() == 0 else offsets
 
-    if diagonals.dim() != 2:
-        raise RuntimeError(
-            f"_spdiags: diagonals must be 2-D, but got {diagonals.dim()}-D"
-        )
-
-    if offsets.dim() != 1:
-        raise RuntimeError(f"_spdiags: offsets must be 1-D, but got {offsets.dim()}-D")
-
+    if diagonals_2d.dim() != 2:
+        raise RuntimeError("Diagonals must be vector or matrix")
+    if offsets_1d.dim() != 1:
+        raise RuntimeError("Offsets must be scalar or vector")
     if len(shape) != 2:
-        raise RuntimeError(f"_spdiags: shape must have length 2, but got {len(shape)}")
+        raise RuntimeError("Output shape must be 2d")
 
-    num_diags = diagonals.shape[0]
-    diag_len = diagonals.shape[1]
+    if layout is not None and layout not in (
+        torch.sparse_coo,
+        torch.sparse_csr,
+        torch.sparse_csc,
+    ):
+        raise RuntimeError(
+            "Only output layouts (Sparse, SparseCsc, SparseCsr) are supported, "
+            f"got {layout}"
+        )
+
+    if offsets_1d.dtype != torch.int64:
+        raise RuntimeError(
+            f"Offset Tensor must have dtype Long but got {offsets_1d.dtype}"
+        )
+
+    num_diags = diagonals_2d.shape[0]
+    diag_len = diagonals_2d.shape[1]
     nrows, ncols = shape
 
-    if offsets.shape[0] != num_diags:
+    if offsets_1d.shape[0] != num_diags:
         raise RuntimeError(
-            f"_spdiags: number of diagonals ({num_diags}) must match "
-            f"number of offsets ({offsets.shape[0]})"
+            f"Number of diagonals ({num_diags}) does not match "
+            f"the number of offsets ({offsets_1d.shape[0]})"
         )
+
+    if offsets_1d.numel() != torch.unique(offsets_1d).numel():
+        raise RuntimeError("Offset tensor contains duplicate values")
 
     # Handle empty case
     if num_diags == 0 or diag_len == 0 or nrows == 0 or ncols == 0:
         indices = torch.empty((2, 0), dtype=torch.int64, device=diagonals.device)
         values = torch.empty((0,), dtype=diagonals.dtype, device=diagonals.device)
-        return torch.sparse_coo_tensor(
+        result = torch.sparse_coo_tensor(
             indices, values, size=shape, dtype=diagonals.dtype, device=diagonals.device
         )
-
-    # Use CPU fallback for non-CUDA devices
-    if diagonals.device.type != "cuda":
-        # Move to CPU, compute, then move back
-        diagonals_cpu = diagonals.cpu()
-        offsets_cpu = offsets.cpu()
-        result_cpu = torch.ops.aten._spdiags.default(
-            diagonals_cpu, offsets_cpu, shape, layout
-        )
-        # Sparse tensors need special handling to move to device
-        indices = result_cpu.indices().to(diagonals.device)
-        values = result_cpu.values().to(diagonals.device)
-        return torch.sparse_coo_tensor(
-            indices, values, size=shape, dtype=diagonals.dtype, device=diagonals.device
-        )
+        return _to_layout(result, layout)
 
     # Scratch buffers use a fixed ``num_diags * diag_len`` stride so the kernel
     # can write each entry to a deterministic slot without any host-side nnz
@@ -189,11 +180,11 @@ def _spdiags(diagonals, offsets, shape, layout=None):
     BLOCK_SIZE = 256
     grid = (num_diags * triton.cdiv(diag_len, BLOCK_SIZE),)
 
-    diagonals_contig = diagonals.contiguous()
-    offsets_contig = offsets.contiguous()
+    diagonals_contig = diagonals_2d.contiguous()
+    offsets_contig = offsets_1d.contiguous()
 
     with torch_device_fn.device(diagonals.device):
-        _spdiags_kernel[grid](
+        spdiags_kernel[grid](
             diagonals_contig,
             offsets_contig,
             indices_buffer,
@@ -206,12 +197,13 @@ def _spdiags(diagonals, offsets, shape, layout=None):
             BLOCK_SIZE=BLOCK_SIZE,
         )
 
-    # Compact valid entries with a single device-side gather (one sync point),
-    # replacing the former per-diagonal Python slicing + torch.cat loop.
-    keep = indices_buffer[0].ge(0).nonzero(as_tuple=True)[0]
-    indices = indices_buffer.index_select(1, keep)
-    values = values_buffer.index_select(0, keep)
+    # Compact valid entries by routing through supported FlagGems operators
+    # instead of calling PyTorch ge/nonzero/index_select directly.
+    keep = nonzero(indices_buffer[0] >= 0).reshape(-1)
+    indices = index_select(indices_buffer, 1, keep)
+    values = index_select(values_buffer, 0, keep)
 
-    return torch.sparse_coo_tensor(
+    result = torch.sparse_coo_tensor(
         indices, values, size=shape, dtype=diagonals.dtype, device=diagonals.device
     )
+    return _to_layout(result, layout)

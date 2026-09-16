@@ -137,7 +137,6 @@ from flag_gems.ops._scaled_dot_product_fused_attention_overrideable import (
     _scaled_dot_product_fused_attention_overrideable,
 )
 from flag_gems.ops._sparse_semi_structured_mm import _sparse_semi_structured_mm
-from flag_gems.ops._spdiags import _spdiags
 from flag_gems.ops._thnn_differentiable_gru_cell_backward import (
     _thnn_differentiable_gru_cell_backward,
 )
@@ -829,6 +828,7 @@ from flag_gems.ops.sparse_sampled_addmm import (
     sparse_sampled_addmm,
     sparse_sampled_addmm_out,
 )
+from flag_gems.ops.spdiags import spdiags
 from flag_gems.ops.special_airy_ai import special_airy_ai, special_airy_ai_out
 from flag_gems.ops.special_bessel_j0 import special_bessel_j0
 from flag_gems.ops.special_bessel_j1 import special_bessel_j1
@@ -1080,7 +1080,6 @@ __all__ = [
     "_segment_reduce_backward",
     "_segment_reduce_backward_out",
     "_sparse_semi_structured_mm",
-    "_spdiags",
     "_thnn_differentiable_gru_cell_backward",
     "_thnn_fused_lstm_cell",
     "_thnn_fused_lstm_cell_backward_impl",
@@ -1888,6 +1887,7 @@ __all__ = [
     "sort_stable",
     "sparse_sampled_addmm",
     "sparse_sampled_addmm_out",
+    "spdiags",
     "special_airy_ai",
     "special_airy_ai_out",
     "special_bessel_j0",

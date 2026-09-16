@@ -16,16 +16,28 @@ SPDIAGS_SHAPES = [
 ]
 
 
-def _spdiags_torch_cpu(diagonals, offsets, shape):
-    """CPU baseline wrapper for _spdiags since torch has no CUDA implementation."""
-    return torch.ops.aten._spdiags(diagonals.cpu(), offsets.cpu(), shape)
+def _spdiags_torch_cpu(diagonals, offsets, shape, _diagonals_dev, _offsets_dev):
+    """CPU baseline for ``_spdiags`` since torch has no CUDA implementation.
+
+    Only the CPU reference inputs are consumed; the device copies are ignored
+    (they are yielded so the FlagGems op can reuse the same prepared inputs).
+    """
+    return torch.ops.aten._spdiags(diagonals, offsets, shape)
+
+
+def _spdiags_gems(_diagonals_cpu, _offsets_cpu, shape, diagonals, offsets):
+    """FlagGems path, consuming the pre-prepared device inputs only."""
+    return flag_gems.spdiags(diagonals, offsets, shape)
 
 
 class SpdiagsBenchmark(base.Benchmark):
     """Benchmark for ``_spdiags``.
 
     The torch baseline runs on CPU (no CUDA kernel exists), while the FlagGems
-    implementation runs its Triton kernel on the target device.
+    implementation runs its Triton kernel on the target device. Both input sets
+    are prepared up-front in ``get_input_iter`` (outside the timed region) so
+    neither scope pays a host-device transfer: the reference receives CPU
+    tensors directly and the FlagGems op receives device tensors directly.
     """
 
     def set_shapes(self, shape_file_path=None):
@@ -39,7 +51,8 @@ class SpdiagsBenchmark(base.Benchmark):
                 (num_diags, diag_len), dtype=cur_dtype, device=self.device
             )
             offsets = torch.tensor([-1, 0, 1], dtype=torch.int64, device=self.device)
-            yield diagonals, offsets, [nrows, ncols]
+            # Prepare the CPU reference inputs here, outside the timed region.
+            yield diagonals.cpu(), offsets.cpu(), [nrows, ncols], diagonals, offsets
 
 
 @pytest.mark.spdiags
@@ -48,6 +61,6 @@ def test_spdiags():
         op_name="spdiags",
         torch_op=_spdiags_torch_cpu,
         dtypes=consts.FLOAT_DTYPES,
-        gems_op=flag_gems._spdiags,
+        gems_op=_spdiags_gems,
     )
     bench.run()
