@@ -56,6 +56,17 @@ ops:
   - Tensor
   stages:
   - alpha: '5.4'
+- id: _transformer_encoder_layer_fwd
+  description: Triton kernel implementation for _transformer_encoder_layer_fwd.
+  for:
+  - _transformer_encoder_layer_fwd
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.4'
 - id: _weight_norm
   description: 'Reparameterizes a module''s weight tensor by decoupling its magnitude
     (g)
