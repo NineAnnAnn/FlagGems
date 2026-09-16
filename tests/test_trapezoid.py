@@ -372,15 +372,16 @@ def test_trapezoid_x_pair_broadcasting(dtype):
 
 @pytest.mark.trapezoid
 def test_trapezoid_dx_backward():
-    # Reference runs on CPU so it always dispatches to ATen (never FlagGems).
+    # torch.trapezoid is not overridden by flag_gems, so the reference always runs
+    # ATen. to_reference keeps it on the same device as y in either test mode.
     y = torch.randn(
         (3, 5), dtype=torch.float64, device=flag_gems.device, requires_grad=True
     )
-    ref_y = y.detach().cpu().requires_grad_()
+    ref_y = utils.to_reference(y.detach().clone(), upcast=False).requires_grad_()
     torch.trapezoid(ref_y, dx=2.0).sum().backward()
     flag_gems.trapezoid(y, dx=2.0).sum().backward()
 
-    utils.gems_assert_close(y.grad, ref_y.grad.to(flag_gems.device), torch.float64)
+    utils.gems_assert_close(y.grad, ref_y.grad, torch.float64)
 
 
 @pytest.mark.trapezoid_x
@@ -390,10 +391,10 @@ def test_trapezoid_x_backward():
     )
     x = torch.sort(torch.randn(5, dtype=torch.float64, device=flag_gems.device))[0]
     x.requires_grad_(True)
-    ref_y = y.detach().cpu().requires_grad_()
-    ref_x = x.detach().cpu().requires_grad_()
+    ref_y = utils.to_reference(y.detach().clone(), upcast=False).requires_grad_()
+    ref_x = utils.to_reference(x.detach().clone(), upcast=False).requires_grad_()
     torch.trapezoid(ref_y, ref_x).sum().backward()
     flag_gems.trapezoid_x(y, x).sum().backward()
 
-    utils.gems_assert_close(y.grad, ref_y.grad.to(flag_gems.device), torch.float64)
-    utils.gems_assert_close(x.grad, ref_x.grad.to(flag_gems.device), torch.float64)
+    utils.gems_assert_close(y.grad, ref_y.grad, torch.float64)
+    utils.gems_assert_close(x.grad, ref_x.grad, torch.float64)
