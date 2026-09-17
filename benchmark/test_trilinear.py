@@ -21,6 +21,13 @@ class TrilinearBenchmark(base.GenericBenchmark):
         (256, 256),
     ]
 
+    def set_shapes(self, shape_file_path=None):
+        # `trilinear` has no entry in core_shapes.yaml, and neither does this
+        # benchmark class. Without this override, the base set_shapes() walks the
+        # MRO and falls through to the generic `Benchmark:` key, which injects
+        # huge shapes (e.g. [1073741824]) and makes do_bench run for hours.
+        self.shapes = self.DEFAULT_SHAPES
+
     def get_input_iter(self, dtype) -> Generator:
         for shape in self.shapes:
             yield from self.input_fn(shape, dtype, self.device)
