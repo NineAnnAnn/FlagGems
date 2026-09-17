@@ -156,7 +156,6 @@ from flag_gems.ops._thnn_fused_lstm_cell import _thnn_fused_lstm_cell
 from flag_gems.ops._thnn_fused_lstm_cell_backward_impl import (
     _thnn_fused_lstm_cell_backward_impl,
 )
-from flag_gems.ops._trilinear import _trilinear, _trilinear_out
 from flag_gems.ops._unsafe_masked_index import _unsafe_masked_index
 from flag_gems.ops._unsafe_masked_index_put_accumulate import (
     _unsafe_masked_index_put_accumulate,
@@ -1040,6 +1039,7 @@ from flag_gems.ops.transpose import transpose
 from flag_gems.ops.transpose_copy import transpose_copy
 from flag_gems.ops.triangular_indices import tril_indices, triu_indices
 from flag_gems.ops.tril import tril, tril_, tril_out
+from flag_gems.ops.trilinear import _trilinear, _trilinear_out
 from flag_gems.ops.triu import triu, triu_
 from flag_gems.ops.true_divide import true_divide, true_divide_tensor
 from flag_gems.ops.true_divide_ import true_divide_, true_divide_tensor_
