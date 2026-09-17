@@ -29,6 +29,28 @@ class UpsampleNearest3dBackwardBenchmark(base.Benchmark):
             yield grad_output, output_size, input_size
 
 
+class UpsampleNearest3dBackwardGradInputBenchmark(UpsampleNearest3dBackwardBenchmark):
+    def get_input_iter(self, cur_dtype):
+        # The .grad_input overload requires the out tensor `grad_input` to be
+        # supplied. Yield it as a kwargs dict so it is forwarded as a keyword
+        # argument (see base.unpack_to_args_kwargs).
+        for shape in self.shapes:
+            x = torch.randn(shape, dtype=cur_dtype, device=self.device)
+            out_d = shape[2] * 2
+            out_h = shape[3] * 2
+            out_w = shape[4] * 2
+            output_size = (out_d, out_h, out_w)
+
+            out = torch.ops.aten.upsample_nearest3d(
+                x, [out_d, out_h, out_w], None, None, None
+            )
+            grad_output = torch.ones_like(out)
+
+            input_size = tuple(x.shape)
+            grad_input = torch.empty(input_size, dtype=cur_dtype, device=self.device)
+            yield grad_output, output_size, input_size, {"grad_input": grad_input}
+
+
 @pytest.mark.upsample_nearest3d_backward
 def test_upsample_nearest3d_backward():
     bench = UpsampleNearest3dBackwardBenchmark(
@@ -41,7 +63,7 @@ def test_upsample_nearest3d_backward():
 
 @pytest.mark.upsample_nearest3d_backward_grad_input
 def test_upsample_nearest3d_backward_grad_input():
-    bench = UpsampleNearest3dBackwardBenchmark(
+    bench = UpsampleNearest3dBackwardGradInputBenchmark(
         op_name="upsample_nearest3d_backward_grad_input",
         torch_op=torch.ops.aten.upsample_nearest3d_backward.grad_input,
         dtypes=consts.FLOAT_DTYPES,
