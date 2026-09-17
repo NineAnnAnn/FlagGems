@@ -165,6 +165,44 @@ def _invert_permutation(perm):
     return inv
 
 
+def _resolve_contraction(self, other, dims_self, dims_other):
+    # Normalize contracted dims and reconcile their sizes following the ATen
+    # tensordot contract: a contracted axis may be size 1 on either side, in
+    # which case it is broadcast (and later reduced) rather than rejected. Only
+    # unequal, non-1 sizes are an error. Returns normalized dim lists together
+    # with the (possibly expanded) tensors that share matching contracted sizes.
+    dims_self = _normalize_dims(list(dims_self), self.ndim)
+    dims_other = _normalize_dims(list(dims_other), other.ndim)
+
+    if len(dims_self) != len(dims_other):
+        raise RuntimeError(
+            "tensordot: number of contracted dims must match, but got "
+            f"{len(dims_self)} and {len(dims_other)}"
+        )
+
+    self_shape = list(self.shape)
+    other_shape = list(other.shape)
+    for ds, do in zip(dims_self, dims_other):
+        s1 = self.shape[ds]
+        s2 = other.shape[do]
+        if s1 == s2:
+            continue
+        if s1 == 1:
+            self_shape[ds] = s2
+        elif s2 == 1:
+            other_shape[do] = s1
+        else:
+            raise RuntimeError(
+                "tensordot: contracted dimensions need to match, but got "
+                f"size {s1} in dim {ds} of self and size {s2} in dim {do} of "
+                "other"
+            )
+
+    self_e = self.expand(self_shape) if self_shape != list(self.shape) else self
+    other_e = other.expand(other_shape) if other_shape != list(other.shape) else other
+    return dims_self, dims_other, self_e, other_e
+
+
 def _copy_tensordot_out(result: torch.Tensor, out: torch.Tensor) -> torch.Tensor:
     """Validate, resize, and copy a computed tensordot result into an out tensor."""
     if out.device != result.device:
@@ -225,16 +263,9 @@ def _tensordot_impl(self, other, dims_self, dims_other, out=None):
             f"but got {self.device} and {other.device}"
         )
 
-    dims_self = _normalize_dims(list(dims_self), self.ndim)
-    dims_other = _normalize_dims(list(dims_other), other.ndim)
-
-    assert len(dims_self) == len(
-        dims_other
-    ), "tensordot: number of contracted dims must match"
-    for ds, do in zip(dims_self, dims_other):
-        assert (
-            self.shape[ds] == other.shape[do]
-        ), "tensordot: contracted dimensions must have matching sizes"
+    dims_self, dims_other, self, other = _resolve_contraction(
+        self, other, dims_self, dims_other
+    )
 
     # Free (non-contracted) dims, preserving their original order.
     free_self = [d for d in range(self.ndim) if d not in dims_self]
@@ -272,23 +303,14 @@ class TensordotFunction(torch.autograd.Function):
     def forward(ctx, self, other, dims_self, dims_other):
         logger.debug("GEMS TENSORDOT FORWARD")
 
-        dims_self = _normalize_dims(list(dims_self), self.ndim)
-        dims_other = _normalize_dims(list(dims_other), other.ndim)
-        assert len(dims_self) == len(
-            dims_other
-        ), "tensordot: number of contracted dims must match"
-        for ds, do in zip(dims_self, dims_other):
-            assert (
-                self.shape[ds] == other.shape[do]
-            ), "tensordot: contracted dimensions must have matching sizes"
-
-        free_self = [d for d in range(self.ndim) if d not in dims_self]
-        free_other = [d for d in range(other.ndim) if d not in dims_other]
-
-        ctx.free_self = free_self
-        ctx.free_other = free_other
-        ctx.dims_self = dims_self
-        ctx.dims_other = dims_other
+        # Save the raw inputs and their original contracted-dim sizes so the
+        # backward pass can broadcast for the matmul and then reduce the
+        # gradient back to any size-1 contracted axis, matching ATen.
+        dims_self_n, dims_other_n, _, _ = _resolve_contraction(
+            self, other, dims_self, dims_other
+        )
+        ctx.dims_self = dims_self_n
+        ctx.dims_other = dims_other_n
         ctx.save_for_backward(self, other)
 
         return _tensordot_impl(self, other, dims_self, dims_other)
@@ -298,37 +320,56 @@ class TensordotFunction(torch.autograd.Function):
         logger.debug("GEMS TENSORDOT BACKWARD")
 
         self, other = ctx.saved_tensors
-        free_self = ctx.free_self
-        free_other = ctx.free_other
         dims_self = ctx.dims_self
         dims_other = ctx.dims_other
+
+        # Original (pre-broadcast) contracted sizes, used to reduce the grad
+        # back to a size-1 axis after the matmul over the broadcast size.
+        self_orig_sizes = {d: self.shape[d] for d in dims_self}
+        other_orig_sizes = {d: other.shape[d] for d in dims_other}
+
+        # Broadcast contracted dims so both operands share matching sizes.
+        _, _, self_e, other_e = _resolve_contraction(self, other, dims_self, dims_other)
 
         grad_self = None
         grad_other = None
 
-        free_self_sizes = [self.shape[d] for d in free_self]
-        free_other_sizes = [other.shape[d] for d in free_other]
+        free_self = [d for d in range(self_e.ndim) if d not in dims_self]
+        free_other = [d for d in range(other_e.ndim) if d not in dims_other]
+
+        free_self_sizes = [self_e.shape[d] for d in free_self]
+        free_other_sizes = [other_e.shape[d] for d in free_other]
         M = math.prod(free_self_sizes) if free_self_sizes else 1
         N = math.prod(free_other_sizes) if free_other_sizes else 1
-        K = math.prod([self.shape[d] for d in dims_self]) if dims_self else 1
+        K = math.prod([self_e.shape[d] for d in dims_self]) if dims_self else 1
 
         grad_2d = grad_output.reshape(M, N)
 
         if ctx.needs_input_grad[0]:
-            b2d = other.permute(dims_other + free_other).contiguous().reshape(K, N)
+            b2d = other_e.permute(dims_other + free_other).contiguous().reshape(K, N)
             grad_a2d = _matmul_2d(grad_2d, b2d.transpose(0, 1))
-            grad_self = grad_a2d.reshape(self.permute(free_self + dims_self).shape)
+            grad_self = grad_a2d.reshape(self_e.permute(free_self + dims_self).shape)
             grad_self = grad_self.permute(
                 _invert_permutation(free_self + dims_self)
             ).contiguous()
+            # Reduce over any contracted axis that was size 1 on self.
+            for d in dims_self:
+                if self_orig_sizes[d] == 1 and self_e.shape[d] != 1:
+                    grad_self = grad_self.sum(d, keepdim=True)
 
         if ctx.needs_input_grad[1]:
-            a2d = self.permute(free_self + dims_self).contiguous().reshape(M, K)
+            a2d = self_e.permute(free_self + dims_self).contiguous().reshape(M, K)
             grad_b2d = _matmul_2d(a2d.transpose(0, 1), grad_2d)
-            grad_other = grad_b2d.reshape(other.permute(dims_other + free_other).shape)
+            grad_other = grad_b2d.reshape(
+                other_e.permute(dims_other + free_other).shape
+            )
             grad_other = grad_other.permute(
                 _invert_permutation(dims_other + free_other)
             ).contiguous()
+            # Reduce over any contracted axis that was size 1 on other.
+            for d in dims_other:
+                if other_orig_sizes[d] == 1 and other_e.shape[d] != 1:
+                    grad_other = grad_other.sum(d, keepdim=True)
 
         return grad_self, grad_other, None, None
 
