@@ -20,49 +20,41 @@ import triton
 import triton.language as tl
 
 from flag_gems.runtime import torch_device_fn
+from flag_gems.utils import libentry
 from flag_gems.utils.random_utils import (
     philox_backend_seed_offset,
     uint_to_uniform_float,
 )
+from flag_gems.utils.shape_utils import volume
 
 logger = logging.getLogger(__name__)
 
+# Each lane draws up to MAX_ITERS Marsaglia-Tsang proposals; every proposal
+# consumes one philox call (4 uint32 -> 4 uniforms) and one extra call is
+# reserved for the alpha<1 boost, so a lane reserves (MAX_ITERS + 1) * 4
+# random words. Marsaglia-Tsang accepts with probability >~0.95 per proposal,
+# so 32 proposals make an unfilled lane astronomically unlikely.
+MAX_ITERS = 32
+PHILOX_STRIDE = (MAX_ITERS + 1) * 4
+BLOCK_SIZE = 1024
+
 
 @triton.jit
-def _standard_gamma_sample(alpha, u1, u2, u3, u4):
-    """
-    Sample from standard Gamma distribution using Marsaglia and Tsang method.
-    Combines acceptance-rejection for alpha >= 1 and transformation for alpha < 1.
-    """
-    # Convert to float32 for computation
-    alpha_f32 = alpha.to(tl.float32)
-
-    # Handle alpha < 1 case by using transformation: if X ~ Gamma(alpha+1), then U^(1/alpha) * X ~ Gamma(alpha)
-    boost = tl.where(alpha_f32 < 1.0, tl.exp(tl.log(u1) / alpha_f32), 1.0)
-    alpha_adj = tl.where(alpha_f32 < 1.0, alpha_f32 + 1.0, alpha_f32)
-
-    # Marsaglia and Tsang method for alpha >= 1
-    # d = alpha - 1/3, c = 1/sqrt(9*d)
-    d = alpha_adj - 0.33333333333333333
-    c = 1.0 / tl.sqrt(9.0 * d)
-
-    # Generate standard normal using Box-Muller transform
-    z = tl.sqrt(-2.0 * tl.log(u2)) * tl.cos(2.0 * 3.141592653589793 * u3)
-
-    # Acceptance-rejection
-    v = 1.0 + c * z
-    v3 = v * v * v
-
-    # Accept if v > 0 and log(u4) < 0.5*z^2 + d - d*v + d*log(v)
-    accept = (v > 0.0) & (tl.log(u4) < (0.5 * z * z + d - d * v3 + d * tl.log(v3)))
-
-    # If accepted, return d * v^3 * boost, otherwise return a fallback
-    result_f32 = tl.where(accept, d * v3 * boost, alpha_adj * boost)
-
-    # Convert back to original dtype
-    return result_f32.to(alpha.dtype)
+def _boost_uniform(seed, base_counter, alpha_f32, MAX_ITERS: tl.constexpr):
+    # For alpha < 1 use the boost trick: if X ~ Gamma(alpha+1) then
+    # X * U^(1/alpha) ~ Gamma(alpha). Draw the single boost uniform from a
+    # dedicated counter slot (past every proposal slot) so it never correlates
+    # with the proposal randoms.
+    counter = base_counter + MAX_ITERS * 4
+    c0 = (counter & 0xFFFFFFFF).to(tl.uint32)
+    c1 = ((counter >> 32) & 0xFFFFFFFF).to(tl.uint32)
+    z = c0 * 0
+    r0, _, _, _ = tl.philox(seed, c0, c1, z, z)
+    u = tl.maximum(uint_to_uniform_float(r0), 1e-7)
+    return tl.where(alpha_f32 < 1.0, tl.exp(tl.log(u) / alpha_f32), 1.0)
 
 
+@libentry()
 @triton.jit(do_not_specialize=["philox_seed", "philox_offset"])
 def standard_gamma_kernel(
     input_ptr,
@@ -70,66 +62,94 @@ def standard_gamma_kernel(
     n_elements,
     philox_seed,
     philox_offset,
+    TINY,
     BLOCK_SIZE: tl.constexpr,
+    STRIDE: tl.constexpr,
+    MAX_ITERS: tl.constexpr,
 ):
     pid = tl.program_id(axis=0)
-    block_start = pid * BLOCK_SIZE
-    offsets = block_start + tl.arange(0, BLOCK_SIZE)
+    offsets = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     mask = offsets < n_elements
 
-    # Load alpha values
     alpha = tl.load(input_ptr + offsets, mask=mask, other=1.0)
+    alpha_f32 = alpha.to(tl.float32)
 
-    # Generate random numbers using Philox
+    # alpha < 1 is handled through Gamma(alpha + 1) plus the boost factor.
+    alpha_adj = tl.where(alpha_f32 < 1.0, alpha_f32 + 1.0, alpha_f32)
+    d = alpha_adj - 0.3333333333333333
+    c = 1.0 / tl.sqrt(9.0 * d)
+
     philox_seed = philox_seed.to(tl.int64)
     philox_offset = philox_offset.to(tl.int64)
-    c0 = (philox_offset & 0xFFFFFFFF).to(tl.uint32)
-    c1 = ((philox_offset >> 32) & 0xFFFFFFFF).to(tl.uint32)
-    c0 += offsets
-    _O = c0 * 0
+    base_counter = philox_offset + offsets.to(tl.int64) * STRIDE
 
-    r0, r1, r2, r3 = tl.philox(philox_seed, c0, c1, _O, _O)
-    u1 = uint_to_uniform_float(r0)
-    u2 = uint_to_uniform_float(r1)
-    u3 = uint_to_uniform_float(r2)
-    u4 = uint_to_uniform_float(r3)
+    boost = _boost_uniform(philox_seed, base_counter, alpha_f32, MAX_ITERS)
 
-    # Ensure u values are in (0, 1) to avoid log(0)
-    eps = 1e-7
-    u1 = tl.maximum(u1, eps)
-    u2 = tl.maximum(u2, eps)
-    u3 = tl.maximum(u3, eps)
-    u4 = tl.maximum(u4, eps)
+    # Marsaglia-Tsang acceptance-rejection. Each iteration draws fresh randoms
+    # for the still-unaccepted lanes; accepted lanes freeze their sample. This
+    # avoids the bias of substituting a fallback value on rejection.
+    accepted = tl.zeros([BLOCK_SIZE], dtype=tl.int1)
+    result_f32 = tl.zeros([BLOCK_SIZE], dtype=tl.float32)
 
-    # Sample from Gamma distribution
-    result = _standard_gamma_sample(alpha, u1, u2, u3, u4)
+    for it in range(0, MAX_ITERS):
+        counter = base_counter + it * 4
+        c0 = (counter & 0xFFFFFFFF).to(tl.uint32)
+        c1 = ((counter >> 32) & 0xFFFFFFFF).to(tl.uint32)
+        z0 = c0 * 0
+        r0, r1, r2, r3 = tl.philox(philox_seed, c0, c1, z0, z0)
+        u2 = tl.maximum(uint_to_uniform_float(r1), 1e-7)
+        u3 = uint_to_uniform_float(r2)
+        u4 = tl.maximum(uint_to_uniform_float(r3), 1e-7)
 
-    # Store result
+        # Standard normal via Box-Muller.
+        z = tl.sqrt(-2.0 * tl.log(u2)) * tl.cos(2.0 * 3.141592653589793 * u3)
+        v = 1.0 + c * z
+        v3 = v * v * v
+
+        accept = (v > 0.0) & (tl.log(u4) < (0.5 * z * z + d - d * v3 + d * tl.log(v3)))
+        take = accept & (accepted == 0)
+        result_f32 = tl.where(take, d * v3, result_f32)
+        accepted = accepted | accept
+
+    result_f32 = result_f32 * boost
+    # ATen clamps the draw to the smallest positive value of the output dtype so
+    # tiny-alpha samples never underflow to exactly zero.
+    result_f32 = tl.maximum(result_f32, TINY)
+
+    result = result_f32.to(alpha.dtype)
     tl.store(output_ptr + offsets, result, mask=mask)
 
 
-def _standard_gamma(input):
+def standard_gamma(input, generator=None):
     logger.debug("GEMS _STANDARD_GAMMA")
 
-    # Ensure input is contiguous
     input = input.contiguous()
     output = torch.empty_like(input)
 
-    n_elements = input.numel()
-    device = input.device
+    n_elements = volume(input.shape)
+    if n_elements == 0:
+        return output
 
-    BLOCK_SIZE = 1024
-    grid = lambda meta: (triton.cdiv(n_elements, BLOCK_SIZE),)
+    device = input.device
+    tiny = torch.finfo(input.dtype).tiny
+
+    grid = lambda meta: (triton.cdiv(n_elements, meta["BLOCK_SIZE"]),)
 
     with torch_device_fn.device(device):
-        philox_seed, philox_offset = philox_backend_seed_offset(n_elements)
+        increment = triton.cdiv(n_elements * PHILOX_STRIDE, 4)
+        philox_seed, philox_offset = philox_backend_seed_offset(
+            increment, generator=generator
+        )
         standard_gamma_kernel[grid](
             input,
             output,
             n_elements,
             philox_seed,
             philox_offset,
+            tiny,
             BLOCK_SIZE=BLOCK_SIZE,
+            STRIDE=PHILOX_STRIDE,
+            MAX_ITERS=MAX_ITERS,
         )
 
     return output

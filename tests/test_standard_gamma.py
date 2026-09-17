@@ -24,7 +24,7 @@ def test_standard_gamma(shape, dtype):
     # 3. Statistical properties are reasonable
 
     ref_out = torch._standard_gamma(ref_inp)
-    res_out = flag_gems._standard_gamma(res_inp)
+    res_out = flag_gems.standard_gamma(res_inp)
 
     # Check shape and dtype
     assert res_out.shape == ref_out.shape
@@ -54,7 +54,7 @@ def test_standard_gamma_statistics(alpha):
     dtype = torch.float32
 
     inp = torch.full(shape, alpha, dtype=dtype, device=flag_gems.device)
-    out = flag_gems._standard_gamma(inp)
+    out = flag_gems.standard_gamma(inp)
 
     # Check basic properties
     assert out.shape == shape
@@ -83,10 +83,61 @@ def test_standard_gamma_randomness():
 
     inp = torch.ones(shape, dtype=dtype, device=flag_gems.device) * 2.0
 
-    out1 = flag_gems._standard_gamma(inp)
-    out2 = flag_gems._standard_gamma(inp)
+    out1 = flag_gems.standard_gamma(inp)
+    out2 = flag_gems.standard_gamma(inp)
 
     # The two outputs should be different (with very high probability)
     assert not torch.allclose(
         out1, out2
     ), "Multiple calls should generate different random values"
+
+
+@pytest.mark.standard_gamma
+@pytest.mark.parametrize("alpha", [1e-4, 1e-3, 1e-2, 0.05])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
+def test_standard_gamma_tiny_alpha(alpha, dtype):
+    """Tiny alpha must not underflow to exactly zero.
+
+    Like ATen, the sample is clamped to the smallest positive value of the
+    output dtype, so every draw stays strictly positive.
+    """
+    shape = (4096,)
+    inp = torch.full(shape, alpha, dtype=dtype, device=flag_gems.device)
+    out = flag_gems.standard_gamma(inp)
+
+    assert out.dtype == dtype
+    assert torch.all(out > 0), "Tiny-alpha samples must be strictly positive"
+
+
+@pytest.mark.standard_gamma
+def test_standard_gamma_generator_reproducible():
+    """Passing the same seeded generator must reproduce the same samples."""
+    shape = (2048,)
+    dtype = torch.float32
+    inp = torch.rand(shape, dtype=dtype, device=flag_gems.device) * 4.0 + 0.5
+
+    gen = torch.Generator(device=flag_gems.device)
+    gen.manual_seed(12345)
+    out1 = flag_gems.standard_gamma(inp, generator=gen)
+
+    gen.manual_seed(12345)
+    out2 = flag_gems.standard_gamma(inp, generator=gen)
+
+    torch.testing.assert_close(out1, out2, rtol=0, atol=0)
+
+
+@pytest.mark.standard_gamma
+def test_standard_gamma_generator_advances_state():
+    """Consecutive draws from one generator advance its state (differ)."""
+    shape = (2048,)
+    dtype = torch.float32
+    inp = torch.rand(shape, dtype=dtype, device=flag_gems.device) * 4.0 + 0.5
+
+    gen = torch.Generator(device=flag_gems.device)
+    gen.manual_seed(777)
+    out1 = flag_gems.standard_gamma(inp, generator=gen)
+    out2 = flag_gems.standard_gamma(inp, generator=gen)
+
+    assert not torch.allclose(
+        out1, out2
+    ), "Generator state should advance between consecutive calls"
