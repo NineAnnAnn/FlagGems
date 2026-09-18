@@ -370,6 +370,10 @@ from flag_gems.ops.conv_tbc_backward import conv_tbc_backward
 from flag_gems.ops.conv_transpose1d import conv_transpose1d
 from flag_gems.ops.conv_transpose2d import conv_transpose2d
 from flag_gems.ops.conv_transpose3d import conv_transpose3d
+from flag_gems.ops.convolution_backward_overrideable import (
+    convolution_backward_overrideable,
+    convolution_backward_overrideable_out,
+)
 from flag_gems.ops.convolution_overrideable import (
     convolution_overrideable,
     convolution_overrideable_out,
@@ -1295,7 +1299,6 @@ __all__ = [
     "_sparse_semi_structured_addmm",
     "_sparse_semi_structured_linear",
     "_sparse_semi_structured_mm",
-    "standard_gamma_grad",
     "_thnn_differentiable_gru_cell_backward",
     "_thnn_fused_gru_cell",
     "_thnn_fused_gru_cell_backward",
@@ -1517,6 +1520,8 @@ __all__ = [
     "conv_transpose1d",
     "conv_transpose2d",
     "conv_transpose3d",
+    "convolution_backward_overrideable",
+    "convolution_backward_overrideable_out",
     "convolution_overrideable",
     "convolution_overrideable_out",
     "copy",
@@ -2296,6 +2301,7 @@ __all__ = [
     "sspaddmm",
     "sspaddmm_out",
     "stack",
+    "standard_gamma_grad",
     "std",
     "std_mean",
     "std_mean_correction",
