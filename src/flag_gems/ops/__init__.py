@@ -100,9 +100,11 @@ from flag_gems.ops._jagged_to_padded_dense_forward import (
     _jagged_to_padded_dense_forward,
 )
 from flag_gems.ops._linalg_eigvals import _linalg_eigvals
+from flag_gems.ops._linalg_slogdet import _linalg_slogdet
 from flag_gems.ops._list_to_tensor import _list_to_tensor
 from flag_gems.ops._make_dep_token import _make_dep_token
 from flag_gems.ops._masked_scale import _masked_scale
+from flag_gems.ops._masked_softmax import _masked_softmax
 from flag_gems.ops._masked_softmax_backward import _masked_softmax_backward
 from flag_gems.ops._native_batch_norm_legit import (
     _native_batch_norm_legit,
@@ -126,6 +128,7 @@ from flag_gems.ops._nested_tensor_from_mask_left_aligned import (
 from flag_gems.ops._nested_view_from_buffer_copy import _nested_view_from_buffer_copy
 from flag_gems.ops._nested_view_from_jagged import _nested_view_from_jagged
 from flag_gems.ops._nested_view_from_jagged_copy import _nested_view_from_jagged_copy
+from flag_gems.ops._pad_circular import _pad_circular
 from flag_gems.ops._pdist_backward import _pdist_backward
 from flag_gems.ops._pdist_forward import _pdist_forward
 from flag_gems.ops._prelu_kernel import _prelu_kernel
@@ -379,6 +382,7 @@ from flag_gems.ops.corrcoef import corrcoef
 from flag_gems.ops.cos import cos, cos_
 from flag_gems.ops.cosh import cosh, cosh_, cosh_out
 from flag_gems.ops.cosine_embedding_loss import cosine_embedding_loss
+from flag_gems.ops.cosine_similarity import cosine_similarity
 from flag_gems.ops.count_nonzero import count_nonzero
 from flag_gems.ops.cov import cov
 from flag_gems.ops.cross import cross, cross_out
@@ -740,6 +744,7 @@ from flag_gems.ops.miopen_batch_norm import miopen_batch_norm
 from flag_gems.ops.miopen_batch_norm_backward import miopen_batch_norm_backward
 from flag_gems.ops.mish import mish, mish_
 from flag_gems.ops.mish_backward import mish_backward
+from flag_gems.ops.mixed_dtypes_linear import mixed_dtypes_linear
 from flag_gems.ops.mkldnn_rnn_layer import mkldnn_rnn_layer
 from flag_gems.ops.mm import mm, mm_out, router_gemm
 from flag_gems.ops.mode import mode
@@ -802,6 +807,7 @@ from flag_gems.ops.nonzero import nonzero
 from flag_gems.ops.nonzero_numpy import nonzero_numpy
 from flag_gems.ops.nonzero_static import nonzero_static, nonzero_static_out
 from flag_gems.ops.norm import norm, norm_scalar, norm_scalaropt_dim
+from flag_gems.ops.norm_except_dim import norm_except_dim
 from flag_gems.ops.normal import (
     normal_,
     normal_float_tensor,
@@ -825,9 +831,11 @@ from flag_gems.ops.per_token_group_quant_fp8 import (
     per_token_group_quant_fp8,
 )
 from flag_gems.ops.permute_copy import permute_copy
+from flag_gems.ops.pinverse import pinverse
 from flag_gems.ops.pixel_shuffle import pixel_shuffle
 from flag_gems.ops.pixel_unshuffle import pixel_unshuffle, pixel_unshuffle_out
 from flag_gems.ops.poisson import poisson
+from flag_gems.ops.poisson_nll_loss import poisson_nll_loss
 from flag_gems.ops.polar import polar
 from flag_gems.ops.polygamma import polygamma, polygamma_, polygamma_out
 from flag_gems.ops.pow import (
@@ -1248,9 +1256,11 @@ __all__ = [
     "_is_all_true",
     "_jagged_to_padded_dense_forward",
     "_linalg_eigvals",
+    "_linalg_slogdet",
     "_list_to_tensor",
     "_make_dep_token",
     "_masked_scale",
+    "_masked_softmax",
     "_masked_softmax_backward",
     "_native_batch_norm_legit",
     "_native_batch_norm_legit_functional",
@@ -1266,6 +1276,7 @@ __all__ = [
     "_nested_view_from_buffer_copy",
     "_nested_view_from_jagged",
     "_nested_view_from_jagged_copy",
+    "_pad_circular",
     "_padded_dense_to_jagged_forward",
     "_pdist_backward",
     "_pdist_forward",
@@ -1521,6 +1532,7 @@ __all__ = [
     "cosh_",
     "cosh_out",
     "cosine_embedding_loss",
+    "cosine_similarity",
     "count_nonzero",
     "cov",
     "cross",
@@ -1940,6 +1952,7 @@ __all__ = [
     "mish",
     "mish_",
     "mish_backward",
+    "mixed_dtypes_linear",
     "mkldnn_rnn_layer",
     "mm",
     "mm_out",
@@ -2004,6 +2017,7 @@ __all__ = [
     "nonzero_static",
     "nonzero_static_out",
     "norm",
+    "norm_except_dim",
     "norm_scalar",
     "norm_scalaropt_dim",
     "normal_",
@@ -2026,10 +2040,12 @@ __all__ = [
     "pdist",
     "per_token_group_quant_fp8",
     "permute_copy",
+    "pinverse",
     "pixel_shuffle",
     "pixel_unshuffle",
     "pixel_unshuffle_out",
     "poisson",
+    "poisson_nll_loss",
     "polar",
     "polygamma",
     "polygamma_",
