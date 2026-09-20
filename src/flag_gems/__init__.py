@@ -322,6 +322,7 @@ _FULL_CONFIG = (
         to_copy,
         lambda: version.parse(torch.__version__) >= version.parse("2.4"),
     ),
+    ("_transform_bias_rescale_qkv", _transform_bias_rescale_qkv),
     ("_transformer_encoder_layer_fwd", _transformer_encoder_layer_fwd),
     ("_unique2", _unique2),
     ("_unsafe_index", unsafe_index),

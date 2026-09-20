@@ -73,6 +73,17 @@ ops:
   - Tensor
   stages:
   - alpha: '5.4'
+- id: _transform_bias_rescale_qkv
+  description: Triton kernel implementation for _transform_bias_rescale_qkv.
+  for:
+  - _transform_bias_rescale_qkv
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.4'
 - id: _transformer_encoder_layer_fwd
   description: Triton kernel implementation for _transformer_encoder_layer_fwd.
   for:
