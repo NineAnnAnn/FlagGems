@@ -15690,6 +15690,17 @@ ops:
   - NeuralNetwork
   stages:
   - alpha: '5.4'
+- id: standard_gamma
+  description: Triton kernel implementation for _standard_gamma.
+  for:
+  - _standard_gamma
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Math
+  stages:
+  - alpha: '5.5'
 - id: standard_gamma_grad
   description: Triton kernel implementation for _standard_gamma_grad.
   for:
