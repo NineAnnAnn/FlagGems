@@ -250,9 +250,6 @@ _FULL_CONFIG = (
     ("_nested_view_from_buffer_copy", _nested_view_from_buffer_copy),
     ("_nested_view_from_jagged", _nested_view_from_jagged),
     ("_nested_view_from_jagged_copy", _nested_view_from_jagged_copy),
-    # _pad_circular is a CompositeImplicitAutograd op; it decomposes before
-    # reaching the backend key, so we must also register the CompositeImplicitAutograd
-    # key for use_gems() to intercept it instead of silently running the decomposition.
     ("_pad_circular", _pad_circular, None, ["CompositeImplicitAutograd"]),
     ("_padded_dense_to_jagged_forward", _padded_dense_to_jagged_forward),
     ("_pdist_backward", _pdist_backward),
@@ -811,8 +808,6 @@ _FULL_CONFIG = (
     ("heaviside_", heaviside_),
     ("hinge_embedding_loss", hinge_embedding_loss),
     ("histc", histc),
-    # histogramdd is CompositeImplicitAutograd; a plain 2-tuple would let the native
-    # decomposition run and use_gems() would silently no-op (false pass).
     ("histogramdd", histogramdd, None, ["CompositeImplicitAutograd"]),
     ("hsplit.array", hsplit),
     ("hsplit.int", hsplit),
@@ -1486,6 +1481,8 @@ _FULL_CONFIG = (
     ("trace_backward", trace_backward),
     ("transpose.int", transpose),
     ("transpose_copy.int", transpose_copy),
+    ("trapezoid.dx", trapz),
+    ("trapz.dx", trapz),
     ("tril", tril),
     ("tril.out", tril_out),
     ("tril_", tril_),
