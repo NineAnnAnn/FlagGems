@@ -42,6 +42,7 @@ special_zeta_out: test_special_zeta
 special_zeta_scalar_tensor_out: test_special_zeta
 special_zeta_tensor_scalar_out: test_special_zeta
 tensordot_out: test_tensordot
+upsample_nearest1d_backward_grad_input: test_upsample_nearest1d_backward
 
 # Compound / alternative names
 arange_start_step: test_arange
