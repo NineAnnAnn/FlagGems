@@ -14755,6 +14755,18 @@ ops:
   - BLAS
   stages:
   - alpha: '5.4'
+- id: spdiags
+  description: Triton kernel implementation for _spdiags that builds a sparse matrix
+    from diagonals.
+  for:
+  - _spdiags
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Math
+  stages:
+  - alpha: '5.5'
 - id: special_airy_ai
   description: 'Computes the Airy function Ai(x) for each element of the input tensor.
 

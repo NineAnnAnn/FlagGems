@@ -311,6 +311,7 @@ _FULL_CONFIG = (
     ("_sparse_semi_structured_addmm", _sparse_semi_structured_addmm),
     ("_sparse_semi_structured_linear", _sparse_semi_structured_linear),
     ("_sparse_semi_structured_mm", _sparse_semi_structured_mm),
+    ("_spdiags", spdiags),
     ("_standard_gamma", standard_gamma),
     ("_standard_gamma_grad", standard_gamma_grad),
     (
