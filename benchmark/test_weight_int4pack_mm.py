@@ -37,30 +37,87 @@ WEIGHT_INT4PACK_MM_SHAPES = [
 ]
 
 
-def _torch_reference_int4pack_mm(A, mat2_packed, qGroupSize, qScaleAndZeros):
-    """Same-device eager-PyTorch baseline for a fair speedup measurement.
+# One-time weight-conversion cache. The ATen int4 GEMM consumes a repacked
+# (tiled) weight, not this operator's raw byte-pair layout; converting it is a
+# one-off deployment step, not part of per-call inference. do_bench calls the
+# baseline many times with the same input tensors, so we key the converted
+# weight (and reparametrized scale/zero) on the packed tensor's identity and
+# reuse it across timed iterations -- only the ATen matmul is measured.
+_ATEN_CONVERT_CACHE = {}
 
-    The real ATen operator (torch.ops.aten._weight_int4pack_mm) is used as the
-    correctness reference in tests/test_weight_int4pack_mm.py. It cannot serve
-    as the timing baseline here: the CUDA overload requires NVIDIA's Marlin
-    tiled weight format (not runnable on this build) and the CPU overload runs
-    on a different device, which would make the GPU-vs-CPU speedup ratio
-    meaningless. So the benchmark baseline dequantizes on the same device with
-    vectorized tensor ops and runs a dense matmul — the fair "naive PyTorch on
-    GPU" reference for the fused Triton kernel's speedup.
+
+def _aten_inner_k_tiles(K):
+    """Largest innerKTiles in {8,4,2} satisfying ATen's K % (ikt*16) == 0."""
+    for ikt in (8, 4, 2):
+        if K % (ikt * 16) == 0:
+            return ikt
+    return 2
+
+
+def _torch_reference_int4pack_mm(A, mat2_packed, qGroupSize, qScaleAndZeros):
+    """ATen ``_weight_int4pack_mm`` baseline for the speedup measurement.
+
+    This dispatches to the *real* ATen operator this PR implements, per the
+    reviewer's request to use ``torch.ops.aten._weight_int4pack_mm`` as the
+    torch baseline:
+
+    - bf16 activations -> the CUDA overload ``torch.ops.aten._weight_int4pack_mm``
+      runs on the same device, so the speedup ratio is a fair GPU-vs-GPU
+      comparison against NVIDIA's tiled int4 GEMM.
+    - fp16 / fp32 activations -> the CUDA overload only accepts bf16, so we fall
+      back to the CPU overload ``torch.ops.aten._weight_int4pack_mm_for_cpu``
+      (the same real ATen op, CPU variant).
+
+    Both overloads consume their own repacked weight built from this operator's
+    byte-pair layout, and both dequantize as ``w = scale*(q - 8) + zero_add``;
+    this operator uses ``w = (q - zero)*scale``, so we reparametrize
+    ``zero_add = scale*(8 - zero)`` to make the two identical.
     """
     N, K_half = mat2_packed.shape
     K = K_half * 2
-    low = (mat2_packed & 0xF).to(torch.int32)
-    high = ((mat2_packed >> 4) & 0xF).to(torch.int32)
-    q = torch.empty((N, K), dtype=torch.int32, device=mat2_packed.device)
-    q[:, 0::2] = low
-    q[:, 1::2] = high
-    # (num_groups, N) -> (N, K) per-element scale/zero
-    scales = qScaleAndZeros[:, :, 0].t().repeat_interleave(qGroupSize, dim=1)
-    zeros = qScaleAndZeros[:, :, 1].t().repeat_interleave(qGroupSize, dim=1)
-    w_dequant = (q.to(A.dtype) - zeros) * scales
-    return A @ w_dequant.t()
+    scale = qScaleAndZeros[:, :, 0]
+    zero = qScaleAndZeros[:, :, 1]
+
+    if A.dtype == torch.bfloat16:
+        key = (mat2_packed.data_ptr(), qGroupSize, "cuda")
+        cached = _ATEN_CONVERT_CACHE.get(key)
+        if cached is None:
+            # This op packs low nibble = even column, high nibble = odd column.
+            # ATen's packer expects the opposite nibble order, so swap them.
+            low = mat2_packed & 0xF
+            high = (mat2_packed >> 4) & 0xF
+            aten_packed = ((low << 4) | high).contiguous().to(torch.uint8)
+            weight = torch.ops.aten._convert_weight_to_int4pack(
+                aten_packed, _aten_inner_k_tiles(K)
+            )
+            zero_add = (scale * (8.0 - zero)).to(A.dtype)
+            sz = torch.stack([scale.to(A.dtype), zero_add], dim=-1).contiguous()
+            cached = (weight, sz)
+            _ATEN_CONVERT_CACHE[key] = cached
+        weight, sz = cached
+        return torch.ops.aten._weight_int4pack_mm(A, weight, qGroupSize, sz)
+
+    # fp16 / fp32: CUDA overload rejects non-bf16, use the CPU overload.
+    key = (mat2_packed.data_ptr(), qGroupSize, "cpu")
+    cached = _ATEN_CONVERT_CACHE.get(key)
+    if cached is None:
+        mp = mat2_packed.cpu()
+        low = (mp & 0xF).to(torch.int32)
+        high = ((mp >> 4) & 0xF).to(torch.int32)
+        q = torch.empty((N, K), dtype=torch.int32)
+        q[:, 0::2] = low
+        q[:, 1::2] = high
+        weight = torch.ops.aten._convert_weight_to_int4pack_for_cpu(q, 2)
+        scale_cpu = scale.cpu().float()
+        zero_add = scale_cpu * (8.0 - zero.cpu().float())
+        sz = torch.stack([scale_cpu, zero_add], dim=-1).contiguous()
+        cached = (weight, sz)
+        _ATEN_CONVERT_CACHE[key] = cached
+    weight, sz = cached
+    out = torch.ops.aten._weight_int4pack_mm_for_cpu(
+        A.cpu().float(), weight, qGroupSize, sz
+    )
+    return out.to(A.device).to(A.dtype)
 
 
 def _weight_int4pack_mm_input_fn(shape, dtype, device):
@@ -70,13 +127,10 @@ def _weight_int4pack_mm_input_fn(shape, dtype, device):
     A = torch.randn((M, K), dtype=dtype, device=device)
     # Create int4 weights (values 0..15)
     weight_int4 = torch.randint(0, 16, (N, K), dtype=torch.int32, device=device)
-    # Pack weights into byte-pair format
-    packed = torch.empty((N, K // 2), dtype=torch.uint8, device=device)
-    for n in range(N):
-        for k_half in range(K // 2):
-            even = weight_int4[n, 2 * k_half].item() & 0xF
-            odd = weight_int4[n, 2 * k_half + 1].item() & 0xF
-            packed[n, k_half] = (odd << 4) | even
+    # Pack weights into byte-pair format: low nibble = even col, high = odd col.
+    even = (weight_int4[:, 0::2] & 0xF).to(torch.uint8)
+    odd = (weight_int4[:, 1::2] & 0xF).to(torch.uint8)
+    packed = ((odd << 4) | even).contiguous()
     # Create scales and zeros
     num_groups = K // qGroupSize
     scales = torch.rand((num_groups, N), dtype=dtype, device=device) * 1.5 + 0.5
@@ -88,10 +142,11 @@ def _weight_int4pack_mm_input_fn(shape, dtype, device):
 class WeightInt4PackMmBenchmark(base.Benchmark):
     """Benchmark for _weight_int4pack_mm operator.
 
-    The native torch._weight_int4pack_mm uses the Marlin tiled weight format,
-    incompatible with FlagGems' byte-pair int4 packing. The baseline is a naive
-    eager-PyTorch dequant + dense matmul over the same packing, so speedup
-    reflects the fused Triton kernel vs unfused PyTorch.
+    The timing baseline is the real ATen operator this PR implements
+    (``torch.ops.aten._weight_int4pack_mm`` for bf16, its ``_for_cpu`` overload
+    for fp16/fp32); see ``_torch_reference_int4pack_mm`` for the packing/dtype
+    handling. Speedup therefore compares the fused Triton kernel against the
+    genuine ATen int4 GEMM.
     """
 
     def __init__(self, *args, **kwargs):
