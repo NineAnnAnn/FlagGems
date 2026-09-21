@@ -9638,7 +9638,7 @@ ops:
   kind:
   - Math
   stages:
-  - alpha: '5.4'
+  - alpha: '5.5'
 - id: matrix_power_out
   description: An out variant of `matrix_power()` that writes the result into a
     pre-allocated output tensor.
