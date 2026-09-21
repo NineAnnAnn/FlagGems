@@ -73,6 +73,17 @@ ops:
   - Tensor
   stages:
   - alpha: '5.4'
+- id: _saturate_weight_to_fp16
+  description: Triton kernel implementation for _saturate_weight_to_fp16.
+  for:
+  - _saturate_weight_to_fp16
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Tensor
+  stages:
+  - alpha: '5.4'
 - id: _transformer_encoder_layer_fwd
   description: Triton kernel implementation for _transformer_encoder_layer_fwd.
   for:
