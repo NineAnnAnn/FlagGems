@@ -9695,7 +9695,7 @@ ops:
   kind:
   - Math
   stages:
-  - alpha: '5.4'
+  - alpha: '5.5'
 - id: matrix_exp_backward
   description: Triton kernel implementation for matrix_exp_backward.
   for:
