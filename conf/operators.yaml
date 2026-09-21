@@ -13189,7 +13189,7 @@ ops:
   kind:
   - Math
   stages:
-  - alpha: '5.4'
+  - alpha: '5.5'
 - id: scalar_tensor
   description: 'Creates a 0-dimensional (scalar) tensor from a Python numeric value.
 
