@@ -16670,7 +16670,7 @@ ops:
   kind:
   - NeuralNetwork
   stages:
-  - alpha: '5.4'
+  - alpha: '5.5'
 - id: triton_lighting_indexer_k_tiled_interface
   description: Part of FP8 MQA framework. It is currently not exposed as an operator
     for use.
