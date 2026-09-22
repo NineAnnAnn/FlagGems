@@ -3186,7 +3186,7 @@ ops:
   kind:
   - Convolution
   stages:
-  - alpha: '5.4'
+  - alpha: '5.5'
 - id: convolution_double_backward
   description: 'Second-order backward of a convolution, supporting both 1D (3-D operands
 
