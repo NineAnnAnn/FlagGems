@@ -36,6 +36,14 @@ def _unique(inp: torch.Tensor, sorted: bool = True, return_inverse: bool = False
                           If return_inverse=False, an empty tensor.
     """
     logger.debug("GEMS _UNIQUE")
+    # Empty input guard: the underlying simple_unique_flat builds
+    # tile_size = next_power_of_2(numel) and would launch tl.arange(0, 0), which
+    # makes Triton raise CompilationError. ATen returns empty results here, so
+    # short-circuit before touching the kernel.
+    if inp.numel() == 0:
+        unique = torch.empty(0, dtype=inp.dtype, device=inp.device)
+        inverse_indices = torch.empty(0, dtype=torch.int64, device=inp.device)
+        return unique, inverse_indices
     unique, inverse_indices, _ = _unique2(
         inp, sorted=sorted, return_inverse=return_inverse, return_counts=False
     )
