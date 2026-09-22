@@ -66,7 +66,7 @@ def test__transform_bias_rescale_qkv():
     ]
 
     bench = TransformBiasRescaleQKVBenchmark(
-        op_name="_transform_bias_rescale_qkv",
+        op_name="transform_bias_rescale_qkv",
         torch_op=torch_op,
         dtypes=consts.FLOAT_DTYPES,
         input_fn=_transform_bias_rescale_qkv_input_fn,

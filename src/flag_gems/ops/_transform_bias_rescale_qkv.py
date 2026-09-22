@@ -19,6 +19,7 @@ import torch
 import triton
 import triton.language as tl
 
+from flag_gems.ops.contiguous import contiguous
 from flag_gems.runtime import torch_device_fn
 from flag_gems.utils import libentry
 
@@ -132,6 +133,11 @@ def _transform_bias_rescale_qkv(qkv, qkv_bias, num_heads):
         where q is scaled by 1/sqrt(head_dim)
     """
     logger.debug("GEMS _TRANSFORM_BIAS_RESCALE_QKV")
+
+    # The kernel reads the bias with a unit stride, so a non-contiguous bias
+    # would silently produce garbage. Route it through the FlagGems contiguous
+    # op to guarantee the layout the kernel assumes.
+    qkv_bias = contiguous(qkv_bias)
 
     batch, seq_len, total_dim = qkv.shape
     hidden_dim = total_dim // 3
