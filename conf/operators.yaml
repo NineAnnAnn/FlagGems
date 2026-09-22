@@ -9672,7 +9672,7 @@ ops:
   kind:
   - BLAS
   stages:
-  - alpha: '5.4'
+  - alpha: '5.5'
 - id: matmul_bias_activation
   description: Fused matrix multiplication with bias addition and ReLU activation.
   for:
