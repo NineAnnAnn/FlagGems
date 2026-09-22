@@ -27,6 +27,33 @@ ops:
   - NeuralNetwork
   stages:
   - alpha: '5.1'
+- id: _ctc_loss
+  description: 'Computes the CTC loss and the alpha lattice used by its backward pass.
+
+    '
+  for:
+  - _ctc_loss
+  - _ctc_loss.Tensor
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.5'
+- id: _ctc_loss_out
+  description: A variant of `_ctc_loss` that allows the outputs to be assigned to
+    `out`.
+  for:
+  - _ctc_loss.out
+  - _ctc_loss.Tensor_out
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.5'
 - id: _flash_attention_forward
   description: Run the canonical FlashAttention forward operator.
   for:
@@ -1737,6 +1764,18 @@ ops:
   - NeuralNetwork
   stages:
   - alpha: '5.5'
+- id: batch_norm_gather_stats
+  description: Triton kernel implementation for gathering per-device batch normalization
+    statistics into global mean and inverse standard deviation.
+  for:
+  - batch_norm_gather_stats
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.5'
 - id: batch_norm_gather_stats_with_counts
   description: |
     Triton kernel implementation for gathering per-device batch normalization statistics with per-segment counts into global mean and inverse standard deviation.
@@ -1792,6 +1831,18 @@ ops:
   - NeuralNetwork
   stages:
   - alpha: '5.4'
+- id: batch_norm_with_update
+  description: Applies training-mode Batch Normalization using batch statistics and updates
+    running_mean/running_var in place.
+  for:
+  - _batch_norm_with_update
+  labels:
+  - KernelGen
+  - aten
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.5'
 - id: batch_norm_with_update_functional
   description: Functional variant of _batch_norm_with_update that applies training-mode
     Batch Normalization and updates running statistics.
@@ -3633,6 +3684,23 @@ ops:
   - Math
   stages:
   - alpha: '5.4'
+- id: cudnn_rnn
+  description: 'Vendor-agnostic RNN forward pass using Triton kernels that replaces
+    the cuDNN-backed _cudnn_rnn operator.  Supports RNN_RELU, RNN_TANH, LSTM and
+    GRU modes with multi-layer, bidirectional, LSTM projection (proj_size > 0),
+    dropout during training, and packed variable-length sequences.
+
+    '
+  for:
+  - _cudnn_rnn
+  labels:
+  - aten
+  - NoCPU
+  - KernelGen
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.4'
 - id: cudnn_rnn_backward
   description: 'Backward pass of a single-layer unidirectional cuDNN LSTM. Reimplements
     the
@@ -4326,6 +4394,16 @@ ops:
   - Math
   stages:
   - beta: '5.3'
+- id: dyn_quant_matmul_4bit
+  description: Dynamic per-row INT8 activation and signed INT4 weight matrix multiplication.
+  for:
+  - _dyn_quant_matmul_4bit
+  labels:
+  - aten
+  kind:
+  - BLAS
+  stages:
+  - alpha: '5.4'
 - id: dyn_quant_pack_4bit_weight
   description: 'Packs dynamic 4-bit quantized weights, scale/zero values, and optional
     bias
@@ -7590,6 +7668,18 @@ ops:
   - Quantization
   stages:
   - beta: '5.3'
+- id: inner
+  description: Computes the inner product of two tensors by contracting their last
+    dimension, keeping the leading dimensions of each operand per-side without broadcasting.
+  for:
+  - inner
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Math
+  stages:
+  - alpha: '5.5.0'
 - id: inplace_fused_experts
   description: This operator writes output directly to `hidden_states`.
   for:
@@ -9817,6 +9907,21 @@ ops:
   - Tensor
   stages:
   - stable: '2.1'
+- id: masked_select_backward
+  description: 'Backward of `masked_select` with respect to `input`. Scatters the compact
+
+    gradient into a zero tensor at the True mask positions after broadcasting
+
+    `input` and `mask` to a common shape.'
+  for:
+  - masked_select_backward
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Tensor
+  stages:
+  - alpha: '5.5'
 - id: masked_softmax
   description: |
     Apply a softmax over `dim` while excluding positions where the boolean
@@ -10444,6 +10549,28 @@ ops:
   - NeuralNetwork
   stages:
   - alpha: '5.4'
+- id: msort
+  description: Sorts each column of the input tensor in ascending order.
+  for:
+  - msort
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Math
+  stages:
+  - alpha: '5.5'
+- id: msort_out
+  description: Writes the column-wise sorted values into the provided output tensor.
+  for:
+  - msort.out
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Math
+  stages:
+  - alpha: '5.5'
 - id: mul
   description: Multiplies `input` by `other`.
   for:
@@ -12167,6 +12294,55 @@ ops:
   - NeuralNetwork
   stages:
   - alpha: '5.4'
+- id: quantized_max_pool1d
+  description: Applies 1D max pooling over a per-tensor quantized tensor.
+  for:
+  - quantized_max_pool1d
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.4'
+- id: quantized_max_pool1d_out
+  description: |
+    A variant of quantized_max_pool1d() that writes the result into the out tensor.
+  for:
+  - quantized_max_pool1d.out
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.4'
+- id: quantized_max_pool2d
+  description: |
+    Triton kernel implementation for quantized_max_pool2d. Applies 2D max pooling
+    over a quantized input tensor by pooling the underlying integer
+    representation.
+  for:
+  - quantized_max_pool2d
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.4'
+- id: quantized_max_pool2d_out
+  description: |
+    A variant of quantized_max_pool2d() that writes the result into the out tensor.
+  for:
+  - quantized_max_pool2d.out
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.4'
 - id: quantized_max_pool3d
   description: Applies 3D max pooling over a per-tensor quantized quint8 tensor.
   for:
@@ -12717,6 +12893,19 @@ ops:
   stages:
   - beta: '5.0'
   - stable: '5.4'
+- id: replication_pad1d_backward
+  description: 'Computes the gradient of replication_pad1d.
+
+    '
+  for:
+  - replication_pad1d_backward
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Tensor
+  stages:
+  - alpha: '5.4'
 - id: replication_pad1d_out
   description: A variant of `replication_pad1d` that assigns the output to the `out`
     tensor.
@@ -13066,6 +13255,41 @@ ops:
   - Math
   stages:
   - beta: '5.3'
+- id: row_indices
+  description: Returns the row indices of a column-compressed (CSC or BSC) sparse tensor.
+  for:
+  - row_indices
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Math
+  stages:
+  - alpha: '5.4'
+- id: row_stack
+  description: |
+    Stack tensors in sequence vertically (row wise). Alias of vstack.
+  for:
+  - row_stack
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Tensor
+  stages:
+  - alpha: '5.4'
+- id: row_stack_out
+  description: |
+    A variant of row_stack() that writes the result into the out tensor.
+  for:
+  - row_stack.out
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Tensor
+  stages:
+  - alpha: '5.4'
 - id: rrelu_with_noise
   description: 'Triton kernel implementation for rrelu_with_noise
     '
@@ -13264,6 +13488,17 @@ ops:
   - NeuralNetwork
   stages:
   - alpha: '5.3'
+- id: sample_dirichlet
+  description: Draws samples from a Dirichlet distribution parameterized by alpha.
+  for:
+  - _sample_dirichlet
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Math
+  stages:
+  - alpha: '5.5'
 - id: scalar_tensor
   description: 'Creates a 0-dimensional (scalar) tensor from a Python numeric value.
 
@@ -14295,6 +14530,23 @@ ops:
   - LinearAlg
   stages:
   - alpha: '5.5'
+- id: smm
+  description: |
+    Performs a matrix multiplication of the sparse (COO) matrix `self` with the
+    dense matrix `mat` using a fused Triton kernel. The sparse operand is
+    materialized to dense, the product is computed with `tl.dot`, and the COO
+    output (indices + values) is written directly to match `torch.smm`
+    semantics: every row that appears in the sparse input contributes all
+    output columns.
+  for:
+  - smm
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Math
+  stages:
+  - alpha: '5.4'
 - id: smooth_l1_loss
   description: Compute the smooth L1 loss between input and target tensors.
   for:
@@ -15775,6 +16027,17 @@ ops:
   - NeuralNetwork
   stages:
   - alpha: '5.4'
+- id: standard_gamma
+  description: Triton kernel implementation for _standard_gamma.
+  for:
+  - _standard_gamma
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Math
+  stages:
+  - alpha: '5.5'
 - id: standard_gamma_grad
   description: Triton kernel implementation for _standard_gamma_grad.
   for:
@@ -16317,6 +16580,19 @@ ops:
   - NeuralNetwork
   stages:
   - alpha: '5.4'
+- id: thnn_differentiable_lstm_cell_backward
+  description: 'Computes the differentiable backward pass for an LSTM cell, returning
+
+    gradients for the input gates, hidden gates, cell state, and optional biases.'
+  for:
+  - _thnn_differentiable_lstm_cell_backward
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Math
+  stages:
+  - alpha: '5.5'
 - id: thnn_fused_gru_cell
   description: Computes the fused GRU cell forward pass and backward workspace.
   for:
@@ -17104,6 +17380,28 @@ ops:
   - NeuralNetwork
   stages:
   - stable: '5.0'
+- id: upsample_bicubic2d_backward
+  description: Computes non-antialiased bicubic interpolation gradients using deterministic gather.
+  for:
+  - upsample_bicubic2d_backward
+  labels:
+  - aten
+  - Reduction
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.4'
+- id: upsample_bicubic2d_backward_grad_input
+  description: Writes non-antialiased bicubic interpolation gradients to grad_input.
+  for:
+  - upsample_bicubic2d_backward.grad_input
+  labels:
+  - aten
+  - Reduction
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.4'
 - id: upsample_bilinear2d
   description: 'Upsamples the input, using bilinear mode.
 
@@ -17137,6 +17435,28 @@ ops:
   labels:
   - aten
   - KernelGen
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.4'
+- id: upsample_bilinear2d_backward
+  description: Computes gradients of bilinear interpolation without anti-aliasing.
+  for:
+  - upsample_bilinear2d_backward
+  labels:
+  - aten
+  - Reduction
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.4'
+- id: upsample_bilinear2d_backward_grad_input
+  description: Writes bilinear interpolation gradients into a supplied tensor.
+  for:
+  - upsample_bilinear2d_backward.grad_input
+  labels:
+  - aten
+  - Reduction
   kind:
   - NeuralNetwork
   stages:
@@ -17256,6 +17576,28 @@ ops:
   - NeuralNetwork
   stages:
   - stable: '2.2'
+- id: upsample_nearest2d_backward
+  description: Deterministic backward for legacy 2D nearest-neighbor interpolation.
+  for:
+  - upsample_nearest2d_backward
+  labels:
+  - aten
+  - Reduction
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.4'
+- id: upsample_nearest2d_backward_grad_input
+  description: Preallocated-output overload of upsample_nearest2d_backward.
+  for:
+  - upsample_nearest2d_backward.grad_input
+  labels:
+  - aten
+  - Reduction
+  kind:
+  - NeuralNetwork
+  stages:
+  - alpha: '5.4'
 - id: upsample_nearest3d
   description: 'Performs 3D nearest-neighbor interpolation to increase the spatial
     size of volumetric data,
@@ -17440,6 +17782,17 @@ ops:
   - Reduction
   stages:
   - alpha: '5.4'
+- id: vander
+  description: Generates a Vandermonde matrix from a 1-D input tensor.
+  for:
+  - vander
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Tensor
+  stages:
+  - alpha: '5.5'
 - id: var
   description: Calculates the variance over all dimensions.
   for:
