@@ -3173,7 +3173,7 @@ ops:
   kind:
   - Convolution
   stages:
-  - alpha: '5.4'
+  - alpha: '5.5'
 - id: convolution_backward_overrideable_out
   description: 'A variant of convolution_backward_overrideable() that writes the result
     into the out tensors.
