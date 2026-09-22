@@ -17042,7 +17042,7 @@ ops:
   kind:
   - NeuralNetwork
   stages:
-  - alpha: '5.4'
+  - alpha: '5.5'
 - id: upsample_nearest2d
   description: 'Upsamples the `input`, using nearest neighbours'' pixel values. The
     input has to be 4 dimensional.
