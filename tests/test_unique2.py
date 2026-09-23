@@ -48,76 +48,38 @@ def test_unique2(shape, dtype, sorted, return_inverse, return_counts):
 
     ref_inp = utils.to_reference(inp, False)
 
-    if return_counts:
-        if return_inverse:
-            with flag_gems.use_gems():
-                res_out, res_unique_order, res_counts = torch.unique(
-                    inp,
-                    sorted=sorted,
-                    return_inverse=return_inverse,
-                    return_counts=return_counts,
-                )
-            ref_out, ref_unique_order, ref_counts = torch.unique(
-                ref_inp,
-                sorted=sorted,
-                return_inverse=return_inverse,
-                return_counts=return_counts,
-            )
+    res_out, res_inverse, res_counts = flag_gems._unique2(
+        inp,
+        sorted=sorted,
+        return_inverse=return_inverse,
+        return_counts=return_counts,
+    )
 
-            assert res_out.numel() == ref_out.numel()
-
-            utils.gems_assert_equal(res_unique_order, ref_unique_order)
-        else:
-            with flag_gems.use_gems():
-                res_out, res_counts = torch.unique(
-                    inp,
-                    sorted=sorted,
-                    return_inverse=return_inverse,
-                    return_counts=return_counts,
-                )
-            ref_out, ref_counts = torch.unique(
-                ref_inp,
-                sorted=sorted,
-                return_inverse=return_inverse,
-                return_counts=return_counts,
-            )
-
-            assert res_out.numel() == ref_out.numel()
-
-        utils.gems_assert_equal(res_counts, ref_counts)
+    ref = torch.unique(
+        ref_inp,
+        sorted=sorted,
+        return_inverse=return_inverse,
+        return_counts=return_counts,
+    )
+    # torch.unique returns a bare tensor only when both flags are False, else a
+    # tuple whose arity depends on the flags; flag_gems._unique2 always returns
+    # a (out, inverse, counts) tuple.
+    if not return_inverse and not return_counts:
+        ref_out, ref_inverse, ref_counts = ref, None, None
+    elif return_inverse and return_counts:
+        ref_out, ref_inverse, ref_counts = ref
+    elif return_inverse:
+        ref_out, ref_inverse = ref
+        ref_counts = None
     else:
-        if return_inverse:
-            with flag_gems.use_gems():
-                res_out, res_unique_order = torch.unique(
-                    inp,
-                    sorted=sorted,
-                    return_inverse=return_inverse,
-                    return_counts=return_counts,
-                )
-            ref_out, ref_unique_order = torch.unique(
-                ref_inp,
-                sorted=sorted,
-                return_inverse=return_inverse,
-                return_counts=return_counts,
-            )
+        ref_out, ref_counts = ref
+        ref_inverse = None
 
-            assert res_out.numel() == ref_out.numel()
+    assert res_out.numel() == ref_out.numel()
 
-            utils.gems_assert_equal(res_unique_order, ref_unique_order)
-        else:
-            with flag_gems.use_gems():
-                res_out = torch.unique(
-                    inp,
-                    sorted=sorted,
-                    return_inverse=return_inverse,
-                    return_counts=return_counts,
-                )
-            ref_out = torch.unique(
-                ref_inp,
-                sorted=sorted,
-                return_inverse=return_inverse,
-                return_counts=return_counts,
-            )
-            assert res_out.numel() == ref_out.numel()
+    if return_inverse:
+        utils.gems_assert_equal(res_inverse, ref_inverse)
+    if return_counts:
+        utils.gems_assert_equal(res_counts, ref_counts)
 
     utils.gems_assert_equal(res_out, ref_out)
