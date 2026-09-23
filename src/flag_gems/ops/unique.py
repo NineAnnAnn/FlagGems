@@ -796,12 +796,12 @@ def _unique2(
     # empty tensor yields empty outputs, so short-circuit before touching Triton.
     if in0.numel() == 0:
         data_out = torch.empty(0, dtype=in0.dtype, device=in0.device)
-        if return_inverse:
-            inverse_indices = torch.empty(
-                0, dtype=torch.int64, device=in0.device
-            ).view_as(in0)
-        else:
-            inverse_indices = torch.empty(0, dtype=torch.int64, device=in0.device)
+        # ATen view_as's inverse_indices even for empty input, so apply it
+        # unconditionally here: identical for 1-D (both (0,)), and matches
+        # ATen's (0, d1, ...) for empty N-D inputs.
+        inverse_indices = torch.empty(0, dtype=torch.int64, device=in0.device).view_as(
+            in0
+        )
         counts = torch.empty(0, dtype=torch.int64, device=in0.device)
         return data_out, inverse_indices, counts
     if in0.numel() <= 8192:
