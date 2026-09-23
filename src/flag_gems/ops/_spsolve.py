@@ -129,6 +129,11 @@ def spsolve(A, B, *, left=True):
             f"spsolve: linear system size mismatch: A is {tuple(A.shape)}, "
             f"B is {tuple(B.shape)}"
         )
+    if B.device != A.device:
+        raise RuntimeError(
+            f"spsolve: expected A and B to be on the same device, "
+            f"but got A on {A.device} and B on {B.device}"
+        )
 
     A_dense = _csr_to_dense(A)
 

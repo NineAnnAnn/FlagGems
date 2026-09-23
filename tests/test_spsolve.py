@@ -100,6 +100,20 @@ def test_spsolve_rejects_left_false():
 
 
 @pytest.mark.spsolve
+def test_spsolve_rejects_device_mismatch():
+    """A CPU right-hand side with a device A must fail with a clean RuntimeError.
+
+    Without the device check, a CPU B would reach the Triton kernels and die
+    with a raw "Pointer argument ... cannot be accessed" error instead.
+    """
+    A_csr, _ = _make_diagonally_dominant_csr(8, torch.float32, flag_gems.device)
+    b = torch.randn((8,), dtype=torch.float32, device="cpu")
+
+    with pytest.raises(RuntimeError):
+        flag_gems.spsolve(A_csr, b)
+
+
+@pytest.mark.spsolve
 def test_spsolve_requires_csr():
     """Passing a non-CSR matrix raises a clear error."""
     n = 8

@@ -177,7 +177,6 @@ from flag_gems.ops._sobol_engine_initialize_state_ import (
 from flag_gems.ops._sparse_semi_structured_addmm import _sparse_semi_structured_addmm
 from flag_gems.ops._sparse_semi_structured_linear import _sparse_semi_structured_linear
 from flag_gems.ops._sparse_semi_structured_mm import _sparse_semi_structured_mm
-from flag_gems.ops._spdiags import spdiags
 from flag_gems.ops._spsolve import spsolve
 from flag_gems.ops._stack import _stack
 from flag_gems.ops._standard_gamma import standard_gamma

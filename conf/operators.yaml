@@ -16175,7 +16175,7 @@ ops:
   kind:
   - LinearAlg
   stages:
-  - alpha: '5.4'
+  - alpha: '5.5'
 - id: sqrt
   description: Returns a new tensor with the square-root of the elements of `input`.
   for:
