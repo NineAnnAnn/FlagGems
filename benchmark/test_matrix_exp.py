@@ -1,10 +1,12 @@
 import pytest
 import torch
 
+import flag_gems
+
 from . import base, consts
 
 
-class LinalgMatrixExpBenchmark(base.Benchmark):
+class MatrixExpBenchmark(base.Benchmark):
     def set_shapes(self, shape_file_path=None):
         # Matrix exponential requires square matrices
         self.shapes = [
@@ -24,10 +26,11 @@ class LinalgMatrixExpBenchmark(base.Benchmark):
 
 
 @pytest.mark.matrix_exp
-def test_linalg_matrix_exp():
-    bench = LinalgMatrixExpBenchmark(
+def test_matrix_exp():
+    bench = MatrixExpBenchmark(
         op_name="matrix_exp",
-        torch_op=torch.linalg.matrix_exp,
+        torch_op=torch.matrix_exp,
         dtypes=consts.FLOAT_DTYPES,
     )
+    bench.set_gems(flag_gems.matrix_exp)
     bench.run()
