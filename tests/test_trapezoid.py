@@ -244,9 +244,11 @@ def test_trapezoid_x_complex(dtype):
         assert res_out.dtype == dtype
         utils.gems_assert_close(res_out, ref_out, dtype)
 
-        grad = torch.randn_like(res_out)
+        # Same upstream gradient values on both devices: in --ref=cpu mode the
+        # reference lives on cpu while the gems result stays on the device.
+        grad = torch.randn(res_out.shape, dtype=dtype, device=res_out.device)
         res_out.backward(grad.clone())
-        ref_out.backward(grad.clone())
+        ref_out.backward(grad.to(ref_out.device).clone())
         utils.gems_assert_close(y.grad, ref_y.grad, dtype)
         utils.gems_assert_close(x.grad, ref_x.grad, dtype)
 
