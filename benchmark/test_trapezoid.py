@@ -20,11 +20,6 @@ import torch
 from . import base, consts, utils
 
 
-def _dx_input_fn(shape, dtype, device):
-    inp = utils.generate_tensor_input(shape, dtype=dtype, device=device)
-    yield inp, {"dx": 2.0}
-
-
 def _x_input_fn(shape, dtype, device):
     inp = utils.generate_tensor_input(shape, dtype=dtype, device=device)
     x = torch.sort(
@@ -33,18 +28,7 @@ def _x_input_fn(shape, dtype, device):
     yield inp, x
 
 
-@pytest.mark.trapezoid
-def test_trapezoid():
-    bench = base.GenericBenchmark(
-        op_name="trapezoid",
-        torch_op=torch.trapezoid,
-        input_fn=_dx_input_fn,
-        dtypes=consts.FLOAT_DTYPES,
-    )
-    bench.run()
-
-
-class TrapezoidXBenchmark(base.GenericBenchmark):
+class TrapezoidBenchmark(base.GenericBenchmark):
     # torch's reference trapezoid(y, x) allocates x (same size as y) plus several
     # full-size intermediates, so drop the very largest default shapes that would
     # otherwise OOM, and cap the extra shapes to keep memory bounded.
@@ -63,10 +47,12 @@ class TrapezoidXBenchmark(base.GenericBenchmark):
         return more_shapes_1d + more_shapes_2d + more_shapes_3d
 
 
-@pytest.mark.trapezoid_x
-def test_trapezoid_x():
-    bench = TrapezoidXBenchmark(
-        op_name="trapezoid_x",
+@pytest.mark.trapezoid
+def test_trapezoid():
+    # The trapezoid.x overload (per-sample-point spacing); the trapezoid.dx
+    # overload is served by the `trapz` operator and benchmarked there.
+    bench = TrapezoidBenchmark(
+        op_name="trapezoid",
         torch_op=torch.trapezoid,
         input_fn=_x_input_fn,
         dtypes=consts.FLOAT_DTYPES,

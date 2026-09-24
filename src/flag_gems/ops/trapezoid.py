@@ -172,14 +172,69 @@ def _check_bool(y, x=None):
 
 
 def _check_complex(y, x=None):
-    # The Triton kernel cannot handle complex numbers. Raising NotImplementedError
-    # lets the dispatcher fall back to ATen's CompositeImplicitAutograd implementation,
-    # which supports complex in the forward pass.
+    # The Triton kernels are real-valued only. Complex inputs take the
+    # device-side complex path below instead of erroring out, so ATen's
+    # complex forward/backward contract is preserved.
     for name, t in (("y", y), ("x", x)):
         if t is not None and t.is_complex():
-            raise NotImplementedError(
-                f"trapezoid: complex input for `{name}` is not supported by the Triton kernel"
-            )
+            logger.debug("GEMS TRAPEZOID_COMPLEX")
+
+
+def _is_complex(y, x=None):
+    return y.is_complex() or (x is not None and x.is_complex())
+
+
+def _complex_pair_out(y, x, dim):
+    """Device-side complex trapezoid over the x sample points.
+
+    sum_k (y[k] + y[k+1]) / 2 * (x[k+1] - x[k]) with ATen-compatible
+    broadcasting between y and x along `dim`. FlagGems' add/sub/mul kernels
+    support complex dtypes; the final reduction decomposes through
+    view_as_real because the reduction kernels are real-valued.
+    """
+    dim = _normalize_dim(y.dim(), dim)
+    out_dtype = _result_dtype(y, x)
+    y = y.to(out_dtype)
+    x = x.to(out_dtype)
+
+    x_viewed = _view_x(x, y, dim)
+    N = y.shape[dim]
+
+    if N == x_viewed.shape[dim] and N <= 1:
+        # A single (or absent) sample point spans no interval.
+        full_shape = torch.broadcast_shapes(y.shape, x_viewed.shape)
+        out_shape = full_shape[:dim] + full_shape[dim + 1 :]
+        return torch.zeros(out_shape, dtype=out_dtype, device=y.device)
+
+    # Pair space: (y_left + y_right) * (x_right - x_left) / 2, then sum over dim.
+    N_pair = N - 1
+    Nx_pair = x_viewed.shape[dim] - 1
+    yl = y.narrow(dim, 0, N_pair)
+    yr = y.narrow(dim, 1, N_pair)
+    xl = x_viewed.narrow(dim, 0, Nx_pair)
+    xr = x_viewed.narrow(dim, 1, Nx_pair)
+    lpr = gems_add(yl, yr)
+    dx = gems_sub(xr, xl)
+
+    pair_shape = torch.broadcast_shapes(lpr.shape, dx.shape)
+    lpr_b = lpr.broadcast_to(pair_shape)
+    dx_b = dx.broadcast_to(pair_shape)
+    # Scale through a device tensor so the complex-typed gemsmul kernel applies
+    # (a python scalar would downcast to the real promotion path).
+    half = torch.tensor(0.5, dtype=out_dtype, device=lpr_b.device)  # noqa: E501
+    prod = gems_mul(gems_mul(lpr_b, dx_b), half)
+
+    # Complex sums decompose into real and imaginary parts; the FlagGems
+    # reduction kernels are real-valued. view_as_real appends the (..., 2)
+    # real/imag axis last, which does not disturb the earlier `dim` indices,
+    # so reducing `dim` on the real view and recombining is exact.
+    prod_r = torch.view_as_real(prod)
+    total = gems_sum_dim(prod_r.contiguous(), dim=[dim])
+    return torch.view_as_complex(total.contiguous())
+
+
+def _trapezoid_x_complex(y, x, dim):
+    return _complex_pair_out(y, x, dim)
 
 
 def _validate_dx(dx):
@@ -200,11 +255,12 @@ def _validate_dx(dx):
 def _result_dtype(y, x=None):
     # ATen promotes y and x via result_type, but a pure-integer result is computed
     # in float32 (matching ATen's do_trapezoid, which returns float32 for int inputs).
+    # Complex results are preserved as-is (ATen keeps complex64/complex128).
     if x is None:
         dt = y.dtype
     else:
         dt = torch.result_type(y, x)
-    if not dt.is_floating_point:
+    if not dt.is_floating_point and not dt.is_complex:
         dt = torch.float32
     return dt
 
@@ -245,16 +301,38 @@ def _prepare(y, dim):
     return y2, M, N, out_shape
 
 
+def _sum_dim_any(grad, dim, keepdim=False):
+    """FlagGems sum_dim that also accepts complex tensors.
+
+    The reduction kernels are real-valued, so a complex tensor is reduced by
+    splitting it into its real/imaginary parts (view_as_real appends that axis
+    last, so `dim` indices stay valid), summing each, and recombining.
+    """
+    if not grad.is_complex():
+        return gems_sum_dim(grad, dim=dim, keepdim=keepdim)
+    real = torch.view_as_real(grad)  # (..., 2)
+    summed = gems_sum_dim(real, dim=dim, keepdim=keepdim)
+    return torch.view_as_complex(summed.contiguous())
+
+
 def _unbroadcast(grad, target_shape):
     # Sum a broadcast gradient back into the (possibly smaller) target shape.
     # Reductions route through the FlagGems sum_dim kernel (host-function
     # convention: no native PyTorch compute in the wrapper).
     while grad.dim() > len(target_shape):
-        grad = gems_sum_dim(grad, dim=[0])
+        grad = _sum_dim_any(grad, dim=[0])
     for i, s in enumerate(target_shape):
         if s == 1 and grad.shape[i] != 1:
-            grad = gems_sum_dim(grad, dim=[i], keepdim=True)
+            grad = _sum_dim_any(grad, dim=[i], keepdim=True)
     return grad.reshape(target_shape)
+
+
+def _cat_any(parts, dim):
+    """FlagGems cat that also accepts complex tensors (via the real view)."""
+    if not parts[0].is_complex():
+        return gems_cat(parts, dim)
+    reals = [torch.view_as_real(p) for p in parts]
+    return torch.view_as_complex(gems_cat(reals, dim).contiguous())
 
 
 def _accumulate_plus(grad_diff, dim):
@@ -262,7 +340,7 @@ def _accumulate_plus(grad_diff, dim):
     # grad_y[k] = grad_diff[k] + grad_diff[k-1] (endpoints clamped). The concat and
     # element-wise sum route through FlagGems kernels (host-function convention).
     pad = torch.zeros_like(grad_diff.narrow(dim, 0, 1))
-    return gems_add(gems_cat([pad, grad_diff], dim), gems_cat([grad_diff, pad], dim))
+    return gems_add(_cat_any([pad, grad_diff], dim), _cat_any([grad_diff, pad], dim))
 
 
 def _accumulate_minus(grad_diff, dim):
@@ -270,7 +348,7 @@ def _accumulate_minus(grad_diff, dim):
     # grad_x[k] = grad_diff[k-1] - grad_diff[k] (endpoints clamped). The concat and
     # element-wise difference route through FlagGems kernels (host-function convention).
     pad = torch.zeros_like(grad_diff.narrow(dim, 0, 1))
-    return gems_sub(gems_cat([pad, grad_diff], dim), gems_cat([grad_diff, pad], dim))
+    return gems_sub(_cat_any([pad, grad_diff], dim), _cat_any([grad_diff, pad], dim))
 
 
 def _trapezoid_dx_impl(y, dx_val, dim):
@@ -303,15 +381,22 @@ def _trapezoid_dx_impl(y, dx_val, dim):
 def _trapezoid_x_impl(y, x, dim):
     dim = _normalize_dim(y.dim(), dim)
 
-    if y.shape[dim] == 0:
-        out_dtype = _result_dtype(y, x)
-        return torch.zeros(_zeros_shape(y.shape, dim), dtype=out_dtype, device=y.device)
-
     _check_bool(y, x)
-    _check_complex(y, x)
+    if _is_complex(y, x):
+        return _trapezoid_x_complex(y, x, dim)
+
     out_dtype = _result_dtype(y, x)
 
+    # Validate x against ATen's contract before the N <= 1 / empty-input early
+    # returns: a 1-D x must provide one sample point per integration point.
+    # ATen itself only rejects a mismatch when the integration dim is non-empty
+    # (an empty dim integrates to zero regardless of x), so mirror that by
+    # checking the length up front and skipping the check for size 0.
+    if y.shape[dim] == 0:
+        return torch.zeros(_zeros_shape(y.shape, dim), dtype=out_dtype, device=y.device)
+
     x_viewed = _view_x(x, y, dim)
+
     N = y.shape[dim]
     Nx = x_viewed.shape[dim]
 
@@ -408,13 +493,17 @@ class _TrapezoidDX(torch.autograd.Function):
         if N <= 1:
             grad_y = torch.zeros_like(y)
         else:
+            # out = dx * sum_k w[k] * y[k] with w = [0.5, 1, ..., 1, 0.5], so
+            # d out / d y[k] = dx * w[k]. torch.ones/weight filling is host-side
+            # constant setup (not tensor compute); the element-wise scaling that
+            # touches the gradient routes through the FlagGems mul kernel
+            # (host-function convention: no native Tensor arithmetic).
             compute_dtype = torch.float64 if y.dtype == torch.float64 else torch.float32
             weight = torch.ones(N, device=y.device, dtype=compute_dtype)
             weight[0] = 0.5
             weight[-1] = 0.5
-            grad_y = (grad_out.to(compute_dtype).unsqueeze(dim) * weight * dx_val).to(
-                y.dtype
-            )
+            grad_scaled = gems_mul(grad_out.to(compute_dtype).unsqueeze(dim), weight)
+            grad_y = gems_mul(grad_scaled, dx_val).to(y.dtype)
         return grad_y, None, None
 
 
@@ -440,11 +529,18 @@ class _TrapezoidX(torch.autograd.Function):
             # sample point spans no interval, so both gradients are zero (ATen).
             return torch.zeros_like(y), torch.zeros_like(x), None
 
+        # Complex autograd follows the Wirtinger convention: each input's
+        # gradient is conj(d out / d input), matching ATen. In the analytic
+        # chain below the conjugate must therefore apply to the *other*
+        # complex factors while the upstream grad stays plain:
+        #   grad_y[i,k] = grad_out[i] * conj(w[k] * dx[k])
+        #   grad_x[k]  = sum_i grad_out[i] * conj(±0.5 * lpr[i,k])
+        # (real tensors are unaffected by conjugation).
+        complex_case = grad_out.is_complex() or y.is_complex() or x.is_complex()
+
         x_viewed = _view_x(x, y, dim)
 
-        left = y.narrow(dim, 0, N - 1)
-        right = y.narrow(dim, 1, N - 1)
-        lpr = gems_add(left, right)
+        lpr = gems_add(y.narrow(dim, 0, N - 1), y.narrow(dim, 1, N - 1))
 
         Nx = x_viewed.shape[dim]
         x_left = x_viewed.narrow(dim, 0, Nx - 1)
@@ -458,8 +554,12 @@ class _TrapezoidX(torch.autograd.Function):
         # out = (lpr * dx).sum(dim) / 2; route the element-wise products through
         # the FlagGems mul kernel (host-function convention: no native compute).
         grad_pair = gems_mul(grad_out.unsqueeze(dim), 0.5)
-        grad_lpr_b = gems_mul(grad_pair, dx_b)
-        grad_dx_b = gems_mul(grad_pair, lpr_b)
+        if complex_case:
+            grad_lpr_b = gems_mul(grad_pair, dx_b.conj().resolve_conj())
+            grad_dx_b = gems_mul(grad_pair, lpr_b.conj().resolve_conj())
+        else:
+            grad_lpr_b = gems_mul(grad_pair, dx_b)
+            grad_dx_b = gems_mul(grad_pair, lpr_b)
 
         grad_lpr = _unbroadcast(grad_lpr_b, lpr.shape)
         grad_dx = _unbroadcast(grad_dx_b, dx.shape)
