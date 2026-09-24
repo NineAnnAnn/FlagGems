@@ -20,15 +20,17 @@ import triton
 
 from flag_gems.ops.conv2d import conv2d_backward_kernel_weight
 from flag_gems.ops.conv_transpose2d import conv_transpose2d
+from flag_gems.ops.sum import sum_dim as gems_sum_dim
 
 logger = logging.getLogger(__name__)
 
 
 def _compute_bias_grad(out_grad, dtype):
     # out_grad: [N, C, H, W]. grad_bias[c] = sum over n, h, w of out_grad[n, c, h, w].
-    # A plain reduction over the batch and spatial axes accumulated in fp32, matching
-    # the reduction the gems conv2d backward uses for its own bias gradient.
-    return out_grad.to(torch.float32).sum(dim=(0, 2, 3)).to(dtype)
+    # Routed through the FlagGems sum_dim kernel with an fp32 accumulator,
+    # matching the reduction the gems conv2d backward uses for its own bias
+    # gradient (host-function convention: no native PyTorch compute).
+    return gems_sum_dim(out_grad, dim=[0, 2, 3], dtype=torch.float32).to(dtype)
 
 
 def _conv2d_grad_input(
