@@ -59,17 +59,19 @@ def _torch_reference_int4pack_mm(A, mat2_packed, qGroupSize, qScaleAndZeros):
 
     This dispatches to the *real* ATen operator this PR implements, per the
     reviewer's request to use ``torch.ops.aten._weight_int4pack_mm`` as the
-    torch baseline:
+    torch baseline. The CUDA overload only accepts bf16 activations (it asserts
+    ``A.dtype() == at::kBFloat16``), so the baseline always runs the genuine
+    CUDA int4 GEMM on a bf16 view of the activation:
 
-    - bf16 activations -> the CUDA overload ``torch.ops.aten._weight_int4pack_mm``
-      runs on the same device, so the speedup ratio is a fair GPU-vs-GPU
-      comparison against NVIDIA's tiled int4 GEMM.
-    - fp16 / fp32 activations -> the CUDA overload only accepts bf16, so we fall
-      back to the CPU overload ``torch.ops.aten._weight_int4pack_mm_for_cpu``
-      (the same real ATen op, CPU variant).
+    - bf16 activations -> the CUDA overload runs on ``A`` directly, so the
+      speedup ratio is a same-device, same-dtype GPU-vs-GPU comparison.
+    - fp16 / fp32 activations -> the baseline casts ``A`` to bf16 for the ATen
+      call only (the gems path keeps its native dtype). The timed op is still
+      the real ATen CUDA int4 GEMM on the same device; the cast is documented
+      here so the cross-dtype speedup is read with that in mind.
 
-    Both overloads consume their own repacked weight built from this operator's
-    byte-pair layout, and both dequantize as ``w = scale*(q - 8) + zero_add``;
+    Both paths consume ATen's repacked weight built from this operator's
+    byte-pair layout, and ATen dequantizes as ``w = scale*(q - 8) + zero_add``;
     this operator uses ``w = (q - zero)*scale``, so we reparametrize
     ``zero_add = scale*(8 - zero)`` to make the two identical.
     """
@@ -97,27 +99,25 @@ def _torch_reference_int4pack_mm(A, mat2_packed, qGroupSize, qScaleAndZeros):
         weight, sz = cached
         return torch.ops.aten._weight_int4pack_mm(A, weight, qGroupSize, sz)
 
-    # fp16 / fp32: CUDA overload rejects non-bf16, use the CPU overload.
-    key = (mat2_packed.data_ptr(), qGroupSize, "cpu")
+    # fp16 / fp32: the CUDA overload rejects non-bf16 activations, so run the
+    # same real ATen CUDA int4 GEMM on a bf16 view of the activation (same
+    # device, same op). The cached weight/sz reuse the bf16 branch.
+    A_bf16 = A.to(torch.bfloat16)
+    key = (mat2_packed.data_ptr(), qGroupSize, "cuda-bf16-view")
     cached = _ATEN_CONVERT_CACHE.get(key)
     if cached is None:
-        mp = mat2_packed.cpu()
-        low = (mp & 0xF).to(torch.int32)
-        high = ((mp >> 4) & 0xF).to(torch.int32)
-        q = torch.empty((N, K), dtype=torch.int32)
-        q[:, 0::2] = low
-        q[:, 1::2] = high
-        weight = torch.ops.aten._convert_weight_to_int4pack_for_cpu(q, 2)
-        scale_cpu = scale.cpu().float()
-        zero_add = scale_cpu * (8.0 - zero.cpu().float())
-        sz = torch.stack([scale_cpu, zero_add], dim=-1).contiguous()
+        low = mat2_packed & 0xF
+        high = (mat2_packed >> 4) & 0xF
+        aten_packed = ((low << 4) | high).contiguous().to(torch.uint8)
+        weight = torch.ops.aten._convert_weight_to_int4pack(
+            aten_packed, _aten_inner_k_tiles(K)
+        )
+        zero_add = (scale * (8.0 - zero)).to(torch.bfloat16)
+        sz = torch.stack([scale.to(torch.bfloat16), zero_add], dim=-1).contiguous()
         cached = (weight, sz)
         _ATEN_CONVERT_CACHE[key] = cached
     weight, sz = cached
-    out = torch.ops.aten._weight_int4pack_mm_for_cpu(
-        A.cpu().float(), weight, qGroupSize, sz
-    )
-    return out.to(A.device).to(A.dtype)
+    return torch.ops.aten._weight_int4pack_mm(A_bf16, weight, qGroupSize, sz)
 
 
 def _weight_int4pack_mm_input_fn(shape, dtype, device):

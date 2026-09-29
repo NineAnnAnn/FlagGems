@@ -19,24 +19,37 @@ import flag_gems
 
 from . import accuracy_utils as utils
 
-# The reference baseline is the real ATen operator. On this platform the CUDA
-# `torch.ops.aten._weight_int4pack_mm` requires NVIDIA's Marlin tiled weight
-# format (and matching kernel support) that is not runnable here, so we use the
-# packing-compatible CPU overload `_weight_int4pack_mm_for_cpu` as the golden.
-# Both share the byte-pair uint8 (N, K//2) weight layout produced by
-# `_convert_weight_to_int4pack_for_cpu`, which matches this operator's packing.
+# The reference baseline is the real ATen operator, as requested in review.
+# The CUDA `torch.ops.aten._weight_int4pack_mm` overload is used for bf16 (its
+# only supported activation dtype: it asserts A.dtype() == at::kBFloat16), so
+# the golden runs on-device with the same op this PR implements. For fp16/fp32
+# the CUDA overload rejects the input, so the packing-compatible CPU overload
+# `_weight_int4pack_mm_for_cpu` is used instead -- still a real ATen
+# `_weight_int4pack_mm` implementation, just its CPU variant.
+_ATEN_CUDA_MM = getattr(torch.ops.aten, "_weight_int4pack_mm", None)
+_ATEN_CUDA_CONVERT = getattr(torch.ops.aten, "_convert_weight_to_int4pack", None)
 _ATEN_CPU_MM = getattr(torch.ops.aten, "_weight_int4pack_mm_for_cpu", None)
 _ATEN_CPU_CONVERT = getattr(torch.ops.aten, "_convert_weight_to_int4pack_for_cpu", None)
 
 
+def _aten_inner_k_tiles(K):
+    """Largest innerKTiles in {8,4,2} satisfying ATen's K % (ikt*16) == 0."""
+    for ikt in (8, 4, 2):
+        if K % (ikt * 16) == 0:
+            return ikt
+    return 2
+
+
 def _aten_reference_weight_int4pack_mm(A, weight_int4, qGroupSize, scale, zero):
-    """Golden output from the real ATen `_weight_int4pack_mm_for_cpu`.
+    """Golden output from the real ATen `_weight_int4pack_mm`.
+
+    Dispatches to the genuine ATen operator this PR implements: the CUDA
+    overload on-device for bf16, else its CPU overload.
 
     This operator's dequantization convention is `w = (q - zero) * scale`,
     while ATen dequantizes as `w = scale * (q - 8) + zero_add`. The two are
     identical when `zero_add = scale * (8 - zero)`, so we reparametrize the
-    scale/zero pair before handing them to ATen. All ATen work runs on CPU in
-    float32 for a precise, dtype-agnostic golden.
+    scale/zero pair before handing them to ATen.
 
     Args:
         A:            activation tensor (M, K).
@@ -46,8 +59,29 @@ def _aten_reference_weight_int4pack_mm(A, weight_int4, qGroupSize, scale, zero):
                       (K // qGroupSize, N).
 
     Returns:
-        Golden output (M, N) as float32 on CPU.
+        Golden output (M, N) on A's device, in A's dtype.
     """
+    if A.dtype == torch.bfloat16 and _ATEN_CUDA_MM is not None:
+        # On-device golden via the real CUDA overload. Its packer expects the
+        # opposite nibble order, so the byte-pair nibbles are swapped below.
+        K = A.shape[1]
+        # Build ATen's byte-pair layout from the raw int4 weights (low nibble =
+        # even column), then swap nibbles because ATen's packer uses the
+        # opposite order.
+        even = (weight_int4[:, 0::2] & 0xF).to(torch.uint8)
+        odd = (weight_int4[:, 1::2] & 0xF).to(torch.uint8)
+        pr_packed = ((odd << 4) | even).contiguous()
+        swapped = (((pr_packed & 0xF) << 4) | ((pr_packed >> 4) & 0xF)).contiguous()
+        weight = _ATEN_CUDA_CONVERT(swapped, _aten_inner_k_tiles(K))
+        zero_add = (scale * (8.0 - zero)).to(A.dtype)
+        sz = torch.stack([scale.to(A.dtype), zero_add], dim=-1).contiguous()
+        golden = _ATEN_CUDA_MM(A, weight, qGroupSize, sz)
+        # Keep the golden on the same device as the gems result unless the test
+        # harness compares on CPU (TO_CPU), matching utils.to_reference semantics.
+        if utils.TO_CPU:
+            golden = golden.cpu()
+        return golden
+
     A_cpu = A.detach().to(torch.float32).cpu()
     weight_cpu = weight_int4.detach().to(torch.int32).cpu()
     scale_cpu = scale.detach().to(torch.float32).cpu()
