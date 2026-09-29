@@ -54,6 +54,28 @@ BACKEND_OPS_FILE_RE = re.compile(
 TEST_FILE_RE = re.compile(r"^tests/test_(.+)\.py$")
 
 
+def expected_marker(op_id: str, all_op_ids: set) -> str:
+    """Return the pytest marker name for an operator id.
+
+    Mirrors ``tools/run_tests.py:op_marker`` and
+    ``tools/ci_checks/check_operator_markers.py:expected_marker`` so all callers
+    agree on how an operator maps to its marker (the #6359 convention):
+
+      1. Non-underscore ids are used verbatim (``abs`` -> ``abs``).
+      2. Ids with a leading underscore drop it (``_pad_enum`` -> ``pad_enum``),
+         because ``pytest.mark._pad_enum`` is rejected by attribute access.
+      3. If the stripped name collides with a distinct operator id (``_stack``
+         vs the separate ``stack`` op), prefix ``underscore_`` instead
+         (``_stack`` -> ``underscore_stack``).
+    """
+    if not op_id.startswith("_"):
+        return op_id
+    stripped = op_id.lstrip("_")
+    if stripped in all_op_ids:
+        return f"underscore_{stripped}"
+    return stripped
+
+
 def get_diff_files(base_sha: str, head_sha: str) -> list[str]:
     """Get list of changed files introduced by the PR branch.
 
@@ -189,8 +211,9 @@ def main():
     parser.add_argument(
         "--ops-only",
         action="store_true",
-        help="Print only the derived operator ids (one per line) to stdout, "
-        "with no diagnostics. Intended for shell consumption.",
+        help="Print only the derived pytest markers (one per line) to stdout, "
+        "with no diagnostics. Intended for shell consumption. Markers follow "
+        "the #6359 convention (e.g. _pad_enum -> pad_enum).",
     )
     args = parser.parse_args()
 
@@ -202,15 +225,18 @@ def main():
         parser.error("provide either --changed-files or both --base and --head")
 
     all_operators = load_operators_yaml()
+    all_op_ids = set(all_operators)
     changed_ops = derive_operators(changed_files, all_operators)
 
     if args.ops_only:
-        # Machine-readable: just the ids, one per line.
+        # Machine-readable: just the markers, one per line. Apply the marker
+        # convention here so callers select the right tests (a raw id like
+        # _pad_enum would deselect everything).
         for op in changed_ops:
-            print(op)
+            print(expected_marker(op, all_op_ids))
         return
 
-    if args.base and args.head and not args.changed_files:
+    if args.base and args.head:
         print(f"Comparing {args.base}..{args.head}")
     print(f"Changed files ({len(changed_files)}):")
     for f in changed_files[:20]:
