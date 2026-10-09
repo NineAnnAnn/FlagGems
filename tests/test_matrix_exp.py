@@ -21,9 +21,9 @@ def test_linalg_matrix_exp(shape, dtype):
     # PyTorch's matrix_exp has numerical issues with float16/bfloat16
     # Compute reference at higher precision for low-precision types
     if dtype in (torch.float16, torch.bfloat16):
-        ref_out = torch.linalg.matrix_exp(ref_inp.to(torch.float32)).to(dtype)
+        ref_out = torch.matrix_exp(ref_inp.to(torch.float32)).to(dtype)
     else:
-        ref_out = torch.linalg.matrix_exp(ref_inp)
+        ref_out = torch.matrix_exp(ref_inp)
 
     res_out = flag_gems.matrix_exp(inp)
 
@@ -41,9 +41,9 @@ def test_linalg_matrix_exp_batch(shape, dtype):
 
     # Compute reference at higher precision for low-precision types
     if dtype in (torch.float16, torch.bfloat16):
-        ref_out = torch.linalg.matrix_exp(ref_inp.to(torch.float32)).to(dtype)
+        ref_out = torch.matrix_exp(ref_inp.to(torch.float32)).to(dtype)
     else:
-        ref_out = torch.linalg.matrix_exp(ref_inp)
+        ref_out = torch.matrix_exp(ref_inp)
 
     res_out = flag_gems.matrix_exp(inp)
 
@@ -60,9 +60,9 @@ def test_linalg_matrix_exp_identity(dtype):
 
     # Compute reference at higher precision for low-precision types
     if dtype in (torch.float16, torch.bfloat16):
-        ref_out = torch.linalg.matrix_exp(ref_inp.to(torch.float32)).to(dtype)
+        ref_out = torch.matrix_exp(ref_inp.to(torch.float32)).to(dtype)
     else:
-        ref_out = torch.linalg.matrix_exp(ref_inp)
+        ref_out = torch.matrix_exp(ref_inp)
 
     res_out = flag_gems.matrix_exp(inp)
 
@@ -79,9 +79,9 @@ def test_linalg_matrix_exp_zero(dtype):
 
     # Compute reference at higher precision for low-precision types
     if dtype in (torch.float16, torch.bfloat16):
-        ref_out = torch.linalg.matrix_exp(ref_inp.to(torch.float32)).to(dtype)
+        ref_out = torch.matrix_exp(ref_inp.to(torch.float32)).to(dtype)
     else:
-        ref_out = torch.linalg.matrix_exp(ref_inp)
+        ref_out = torch.matrix_exp(ref_inp)
 
     res_out = flag_gems.matrix_exp(inp)
 
